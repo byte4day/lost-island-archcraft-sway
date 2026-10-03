@@ -39,7 +39,8 @@ class AirPlayReceiver(GObject.Object):
             return False
         try:
             process = Gio.Subprocess.new(
-                [executable, "-n", RECEIVER_NAME, "-nh", "-vs", "waylandsink"],
+                [executable, "-n", RECEIVER_NAME, "-nh", "-vsync", "no",
+                 "-avdec", "-srgb", "no", "-vs", "waylandsink"],
                 Gio.SubprocessFlags.NONE)
         except GLib.Error as exc:
             self.message = f"Could not start UxPlay: {exc.message}"
