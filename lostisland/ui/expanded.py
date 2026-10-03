@@ -21,7 +21,8 @@ POMODORO = 25 * 60
 
 class Expanded(Gtk.Box):
     def __init__(self, cfg: dict, media, power, on_timer_change=None,
-                 weather=None, system=None, on_settings=None, recorder=None):
+                 weather=None, system=None, on_settings=None, recorder=None,
+                 airplay=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=11)
         self.add_css_class("expanded")
         self.cfg = cfg
@@ -32,6 +33,7 @@ class Expanded(Gtk.Box):
         self.on_timer_change = on_timer_change
         self.on_settings = on_settings
         self.recorder = recorder
+        self.airplay = airplay
 
         self._pos_timer = 0
         self._seek_dragging = False
@@ -62,6 +64,18 @@ class Expanded(Gtk.Box):
             weakref.finalize(self, self.recorder.disconnect, handler)
             self._sync_recorder()
 
+        if self.airplay is not None:
+            self_ref = weakref.ref(self)
+
+            def on_airplay_changed(*_):
+                widget = self_ref()
+                if widget is not None:
+                    widget._sync_airplay()
+
+            handler = self.airplay.connect("changed", on_airplay_changed)
+            weakref.finalize(self, self.airplay.disconnect, handler)
+            self._sync_airplay()
+
         self.connect("map", lambda *_: self._on_map())
         self.connect("unmap", lambda *_: self._on_unmap())
 
@@ -87,6 +101,18 @@ class Expanded(Gtk.Box):
         self.record_button.connect("clicked", self._on_record_clicked)
         self.record_button.set_visible(self.recorder is not None)
 
+        self.airplay_button = Gtk.Button()
+        self.airplay_button.add_css_class("record-button")
+        self.airplay_button.add_css_class("airplay-button")
+        airplay_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                                  spacing=5)
+        airplay_content.append(_symbol("airplay"))
+        self.airplay_text = Gtk.Label(label="AirPlay")
+        airplay_content.append(self.airplay_text)
+        self.airplay_button.set_child(airplay_content)
+        self.airplay_button.set_visible(self.airplay is not None)
+        self.airplay_button.connect("clicked", self._on_airplay_clicked)
+
         self.bt_chip = _chip("bluetooth-active-symbolic")
         self.net_chip = _chip("network-wireless-symbolic")
 
@@ -94,8 +120,14 @@ class Expanded(Gtk.Box):
         row.append(spacer)
         row.append(self.net_chip)
         row.append(self.bt_chip)
+        row.append(self.airplay_button)
         row.append(self.record_button)
         self.append(row)
+
+        self.airplay_status = Gtk.Label(xalign=0)
+        self.airplay_status.add_css_class("record-status")
+        self.airplay_status.set_visible(False)
+        self.append(self.airplay_status)
 
         self.record_status = Gtk.Label(xalign=0)
         self.record_status.add_css_class("record-status")
@@ -146,6 +178,30 @@ class Expanded(Gtk.Box):
             self.recorder.stop()
         else:
             self._show_record_setup()
+
+    def _on_airplay_clicked(self, *_):
+        if self.airplay.running:
+            self.airplay.stop()
+        else:
+            self.airplay.start()
+
+    def _sync_airplay(self, *_):
+        if self.airplay is None:
+            return
+        running = self.airplay.running
+        self.airplay_button.set_sensitive(not self.airplay.stopping)
+        self.airplay_button.set_tooltip_text(
+            f"Connect to Lost Island from AirPlay; click to stop"
+            if running else "Start UxPlay AirPlay receiver")
+        self.airplay_text.set_label("AirPlay on" if running else "AirPlay")
+        if running:
+            self.airplay_button.add_css_class("airplay-button--active")
+        else:
+            self.airplay_button.remove_css_class("airplay-button--active")
+        error = self.airplay.message.startswith(("UxPlay", "Could not"))
+        self.airplay_status.set_visible(error)
+        if error:
+            self.airplay_status.set_label(self.airplay.message)
 
     def _show_record_setup(self):
         display = self.get_display()

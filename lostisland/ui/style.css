@@ -383,6 +383,12 @@ scale.vol slider {
   color: #f28a8d;
 }
 
+.airplay-button--active {
+  background: #2d3034;
+  border-color: #cfd2d6;
+  color: #f2f2f4;
+}
+
 .record-chip {
   color: #ee777d;
   font-size: 11px;

@@ -4,7 +4,7 @@ A compact, black dynamic island for Sway, maintained by [byte4day](https://githu
 
 [Watch the 27-second demo](media/demo.mp4).
 
-The idle pill shows the Arch mark and clock. When an MPRIS player is playing, it shows the track and album art. The expanded card has playback controls, Wi-Fi, Bluetooth, speaker and microphone switches, battery, volume, a focus timer, and small launchers for the installed Claude Code, Codex, and Cursor Agent CLIs. The black and neutral-gray interface uses Material Symbols and restrained grayscale brand artwork.
+The idle pill shows the Arch mark and clock. When an MPRIS player is playing, it shows the track and album art. The expanded card has playback controls, Wi-Fi, Bluetooth, speaker and microphone switches, a one-click UxPlay AirPlay receiver, battery, volume, a focus timer, and small launchers for the installed Claude Code, Codex, and Cursor Agent CLIs. The black and neutral-gray interface uses Material Symbols and restrained grayscale brand artwork.
 
 **Screen recording:** Click **Record** to choose a display when more than one is connected, then choose **With audio** or **Without audio**. With audio captures the default output's system sound, not the microphone. Stop finalizes an MP4 in `~/Videos/Recordings/`. A recording indicator and timer remain visible on the pill.
 
@@ -13,15 +13,18 @@ The idle pill shows the Arch mark and clock. When an MPRIS player is playing, it
 - Sway on Wayland, Python 3.11 or newer, GTK4, libadwaita, PyGObject and GTK4 layer shell.
 - Arch/Archcraft packages for the core interface and controls: `python`, `python-gobject`, `python-cairo`, `gtk4`, `gtk4-layer-shell`, `libadwaita`, `libpulse`, `networkmanager`, `bluez`, `bluez-utils`, `util-linux`, and `ttf-material-symbols-variable` (Archcraft also provides this font through `archcraft-fonts`).
 - `wf-recorder` for screen recording; `pactl` from `libpulse` and a working PulseAudio/PipeWire output for system audio.
+- [UxPlay](https://github.com/FDH2/UxPlay) for the AirPlay button. It needs Avahi/mDNS and GStreamer plugins for video and audio; the button reports when the executable is missing.
 - Optional: `upower` for battery, `cava` for live EQ, `alacritty` for the CLI launchers, and the `claude`, `codex`, and `cursor-agent` commands for their respective buttons. Music requires an MPRIS-capable player.
 
 On Arch Linux, install the repository packages with:
 
 ```sh
-sudo pacman -S --needed python python-gobject python-cairo gtk4 gtk4-layer-shell libadwaita libpulse networkmanager bluez bluez-utils util-linux ttf-material-symbols-variable wf-recorder upower cava alacritty
+sudo pacman -S --needed python python-gobject python-cairo gtk4 gtk4-layer-shell libadwaita libpulse networkmanager bluez bluez-utils util-linux ttf-material-symbols-variable wf-recorder upower cava alacritty avahi gstreamer gst-plugins-base-libs gst-plugins-good gst-plugins-bad gst-libav
 ```
 
 NetworkManager, Bluetooth, and an audio server must already be configured for their controls to work. Installing the packages alone does not configure those system services.
+
+UxPlay is available as the `uxplay` AUR package (`yay -S uxplay`), or can be [built from the official v1.73.7 source](https://github.com/FDH2/UxPlay/tree/v1.73.7) into `~/.local/bin`. This build was tested with UxPlay 1.73.7. Ensure `avahi-daemon` is running and the sending device is on the same network. Click **AirPlay** to advertise the receiver as **Lost Island**; click **AirPlay on** to stop it. The receiver starts only when requested and stops when the island quits. On Sway, the app selects UxPlay's `waylandsink`; audio uses UxPlay's default sink. UxPlay's [upstream README](https://github.com/FDH2/UxPlay/blob/v1.73.7/README.md) covers network ports, plugins, and optional `~/.uxplayrc` settings.
 
 ## Install on Sway
 
@@ -53,6 +56,7 @@ Open the card by clicking the pill. The gear opens settings. Settings are saved 
 ```sh
 systemctl --user status lost-island.service
 journalctl --user -u lost-island.service -n 50 --no-pager
+avahi-browse -rt _airplay._tcp  # after turning AirPlay on in the island
 PYTHONPATH="$HOME/.local/share/lost-island" python3 -m unittest discover -s "$HOME/.local/share/lost-island/tests" -v
 ```
 
@@ -67,9 +71,9 @@ Copy this prompt into a coding agent that has access to the target user's machin
 ```text
 Set up https://github.com/byte4day/lost-island-archcraft-sway for me as my Sway dynamic island. Read the repository README and inspect my current Sway configuration, startup files, user systemd units, existing bar, available monitors, audio service, package manager, and installed CLI tools before editing anything. Preserve my settings and back up any service or Sway files you change.
 
-Install the documented Arch packages if missing. Clone the repository to ~/.local/share/lost-island (or update an existing checkout safely). Install the provided user systemd unit and ensure the Sway session starts it exactly once with WAYLAND_DISPLAY available. If I have an existing bar, replace only that bar's startup entry after checking what other services it launches; keep network, Bluetooth, tray, notifications, and policy services working. Set the island to the monitor I use and keep the black minimal theme. Do not copy another machine's config.json or credentials.
+Install the documented Arch packages if missing, including UxPlay 1.73.7 or a compatible release and its Avahi/GStreamer dependencies. Clone the repository to ~/.local/share/lost-island (or update an existing checkout safely). Install the provided user systemd unit and ensure the Sway session starts it exactly once with WAYLAND_DISPLAY available. If I have an existing bar, replace only that bar's startup entry after checking what other services it launches; keep network, Bluetooth, tray, notifications, and policy services working. Set the island to the monitor I use and keep the black minimal theme. Do not copy another machine's config.json or credentials.
 
-Verify the Arch pill, expanded controls, MPRIS music behavior, both display choices when I have multiple screens, and the recording setup's audio choices. Test that stopping a short recording produces a playable MP4, and remove that test file afterward. Check the Claude, Codex, and Cursor Agent buttons only against CLIs already installed for me; do not install or authenticate those services without asking. Run the repository tests and inspect systemd status and logs. Explain the files you changed, how to undo the setup, and any feature that could not be verified on my machine.
+Verify the Arch pill, expanded controls, MPRIS music behavior, both display choices when I have multiple screens, and the recording setup's audio choices. Test that stopping a short recording produces a playable MP4, and remove that test file afterward. Check that the AirPlay button starts and stops UxPlay and advertises Lost Island through Avahi; report if no AirPlay sender is available to test an actual stream. Check the Claude, Codex, and Cursor Agent buttons only against CLIs already installed for me; do not install or authenticate those services without asking. Run the repository tests and inspect systemd status and logs. Explain the files you changed, how to undo the setup, and any feature that could not be verified on my machine.
 ```
 
 ## Remove or revert

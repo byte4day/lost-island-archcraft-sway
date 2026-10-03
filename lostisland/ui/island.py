@@ -19,7 +19,7 @@ COLLAPSE_DELAY_MS = 700
 class Island(Gtk.Box):
     def __init__(self, cfg: dict, media, power, weather=None, system=None,
                  on_settings=None, cava=None, lyrics=None, claude=None,
-                 recorder=None):
+                 recorder=None, airplay=None):
         super().__init__()
         self.add_css_class("island")
         self.set_halign(Gtk.Align.CENTER)
@@ -45,7 +45,8 @@ class Island(Gtk.Box):
         self.expanded = Expanded(cfg, media, power,
                                  on_timer_change=self.pill.show_timer_chip,
                                  weather=weather, system=system,
-                                 on_settings=on_settings, recorder=recorder)
+                                 on_settings=on_settings, recorder=recorder,
+                                 airplay=airplay)
         self.expanded.set_size_request(400, -1)
 
         self.stack.add_named(self.pill, "pill")

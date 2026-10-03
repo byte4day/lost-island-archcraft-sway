@@ -23,6 +23,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from lostisland import APP_ID, __version__, config  # noqa: E402
 from lostisland.services.audio import AudioService  # noqa: E402
+from lostisland.services.airplay import AirPlayReceiver  # noqa: E402
 from lostisland.services.bluetooth import BluetoothService  # noqa: E402
 from lostisland.services.cava import CavaService  # noqa: E402
 from lostisland.services.claude_usage import ClaudeUsageService  # noqa: E402
@@ -51,8 +52,10 @@ class LostIsland(Adw.Application):
         self._css_provider: Gtk.CssProvider | None = None
         self._layer_shell = None
         self.recorder = ScreenRecorder()
-        self._quit_after_recording = False
+        self.airplay = AirPlayReceiver()
+        self._quit_pending = False
         self.recorder.connect("changed", self._on_recorder_changed)
+        self.airplay.connect("changed", self._on_airplay_changed)
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM,
                              self._request_quit)
         for opt, short, desc in (
@@ -130,7 +133,7 @@ class LostIsland(Adw.Application):
                              weather=self.weather, system=self.system,
                              on_settings=self.open_settings, cava=self.cava,
                              lyrics=self.lyrics, claude=self.claude,
-                             recorder=self.recorder)
+                             recorder=self.recorder, airplay=self.airplay)
         self._wire_services()
         self.win.set_child(self.island)
         self.win.present()
@@ -216,23 +219,32 @@ class LostIsland(Adw.Application):
         self._build_window()
 
     def _request_quit(self) -> bool:
-        if self._quit_after_recording:
+        if self._quit_pending:
             return GLib.SOURCE_REMOVE
-        if self.recorder.running:
-            self._quit_after_recording = True
+        if self.recorder.running or self.airplay.running:
+            self._quit_pending = True
             self.recorder.stop()
+            self.airplay.stop()
             GLib.timeout_add_seconds(12, self._force_quit)
         else:
             self.quit()
         return GLib.SOURCE_REMOVE
 
     def _on_recorder_changed(self, *_):
-        if self._quit_after_recording and not self.recorder.running:
+        self._finish_quit_if_ready()
+
+    def _on_airplay_changed(self, *_):
+        self._finish_quit_if_ready()
+
+    def _finish_quit_if_ready(self):
+        if self._quit_pending and not self.recorder.running and not self.airplay.running:
             self.quit()
 
     def _force_quit(self) -> bool:
         if self.recorder.process is not None:
             self.recorder.process.force_exit()
+        if self.airplay.process is not None:
+            self.airplay.process.force_exit()
         self.quit()
         return GLib.SOURCE_REMOVE
 
