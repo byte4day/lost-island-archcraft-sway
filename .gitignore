@@ -12,3 +12,4 @@ backups/
 README.local.md
 config.json
 *.mp4
+!media/demo.mp4

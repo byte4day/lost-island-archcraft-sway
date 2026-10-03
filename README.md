@@ -2,6 +2,8 @@
 
 A compact, black dynamic island for Sway, maintained by [byte4day](https://github.com/byte4day). This is a customized Linux build of [Marco Zorn's Lost Island v1.7.2](https://github.com/MarcoZorn/lost-island/tree/v1.7.2), with its MIT license and original attribution preserved. It is designed for Archcraft, and should also work on Arch Linux with Sway and GTK4 layer shell.
 
+[Watch the 27-second demo](media/demo.mp4).
+
 The idle pill shows the Arch mark and clock. When an MPRIS player is playing, it shows the track and album art. The expanded card has playback controls, Wi-Fi, Bluetooth, speaker and microphone switches, battery, volume, a focus timer, and small launchers for the installed Claude Code, Codex, and Cursor Agent CLIs. The black and neutral-gray interface uses Material Symbols and restrained grayscale brand artwork.
 
 **Screen recording:** Click **Record** to choose a display when more than one is connected, then choose **With audio** or **Without audio**. With audio captures the default output's system sound, not the microphone. Stop finalizes an MP4 in `~/Videos/Recordings/`. A recording indicator and timer remain visible on the pill.
