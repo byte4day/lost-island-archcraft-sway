@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Local snapshots and machine-specific notes are not part of the public project.
+backups/
+README.local.md
+config.json
+*.mp4

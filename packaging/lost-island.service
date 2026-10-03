@@ -1,0 +1,17 @@
+[Unit]
+Description=Lost Island for Archcraft Sway
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+Environment=PYTHONPATH=%h/.local/share/lost-island
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+ExecStart=/usr/bin/python3 -m lostisland
+Restart=on-failure
+RestartSec=2
+KillMode=mixed
+TimeoutStopSec=15s
+
+[Install]
+WantedBy=graphical-session.target
