@@ -2,9 +2,11 @@
 
 A compact, black dynamic island for Sway, maintained by [byte4day](https://github.com/byte4day). This is a customized Linux build of [Marco Zorn's Lost Island v1.7.2](https://github.com/MarcoZorn/lost-island/tree/v1.7.2), with its MIT license and original attribution preserved. It is designed for Archcraft, and should also work on Arch Linux with Sway and GTK4 layer shell.
 
-<img src="media/card.png" alt="The expanded island: a clock, two rows of round controls, a volume bar, three CLI launchers and a line with the focus timer, weather and battery" width="400">
+<img src="media/card.png" alt="The expanded island: the player with track, artist and seek bar, two rows of round controls with Sound and Mic on in blue, a volume bar, Claude, Codex and Cursor launchers, and a line with the focus timer, weather and battery" width="400">
 
-[Watch the 27-second demo](media/demo.mp4) (recorded before the October 2026 redesign).
+<img src="media/pill.png" alt="The idle pill: the Arch mark and the clock" height="30">
+
+[Watch the 11-second demo](media/demo.mp4): the pill opens into the card, playback pauses and resumes, and the card closes.
 
 The idle pill shows the Arch mark and clock. When an MPRIS player is playing, it shows the album art and track title. Click the pill to open the card.
 
