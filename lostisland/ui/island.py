@@ -7,11 +7,12 @@ else on screen go straight through to your apps.
 
 from __future__ import annotations
 
-from gi.repository import GLib, Gtk
+from gi.repository import Gio, GLib, Gtk
 
 from lostisland.ui.expanded import Expanded
 from lostisland.ui.peek import Peek
 from lostisland.ui.pill import Pill
+from lostisland.ui.tools import ToolActions
 
 COLLAPSE_DELAY_MS = 700
 
@@ -19,7 +20,7 @@ COLLAPSE_DELAY_MS = 700
 class Island(Gtk.Box):
     def __init__(self, cfg: dict, media, power, weather=None, system=None,
                  on_settings=None, cava=None, lyrics=None, claude=None,
-                 recorder=None, airplay=None):
+                 recorder=None, airplay=None, clipboard=None):
         super().__init__()
         self.add_css_class("island")
         self.set_halign(Gtk.Align.CENTER)
@@ -30,6 +31,8 @@ class Island(Gtk.Box):
 
         self._peek_timeout = 0
         self._collapse_timeout = 0
+        # mirrors mako's do-not-disturb mode; suppresses notification peeks
+        self.dnd_active = False
 
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
@@ -42,11 +45,20 @@ class Island(Gtk.Box):
         self.pill = Pill(cfg, media=media, cava=cava, weather=weather,
                          lyrics=lyrics, claude=claude, recorder=recorder)
         self.peek = Peek()
+        tools_row = (ToolActions(on_collapse=self.collapse,
+                                 on_peek=self._tool_peek,
+                                 on_dnd=self._set_dnd)
+                     if cfg.get("modules", {}).get("tools", True) else None)
         self.expanded = Expanded(cfg, media, power,
                                  on_timer_change=self.pill.show_timer_chip,
                                  weather=weather, system=system,
                                  on_settings=on_settings, recorder=recorder,
-                                 airplay=airplay)
+                                 airplay=airplay, tools_row=tools_row,
+                                 clipboard=clipboard)
+        self.expanded.on_clip_copied = self._clip_copied
+        if tools_row is not None:
+            tools_row.on_power_open = (
+                lambda: self.expanded.clip_button.set_active(False))
         self.expanded.set_size_request(400, -1)
 
         self.stack.add_named(self.pill, "pill")
@@ -68,6 +80,17 @@ class Island(Gtk.Box):
         drag.connect("drag-update", self._on_drag_update)
         drag.connect("drag-end", self._on_drag_end)
         self.add_controller(drag)
+
+        # scroll over the pill changes volume; middle click plays/pauses
+        scroll = Gtk.EventControllerScroll.new(
+            Gtk.EventControllerScrollFlags.VERTICAL
+            | Gtk.EventControllerScrollFlags.DISCRETE)
+        scroll.connect("scroll", self._on_scroll)
+        self.add_controller(scroll)
+
+        middle = Gtk.GestureClick(button=2)
+        middle.connect("released", lambda *_: self.media.play_pause())
+        self.add_controller(middle)
 
         motion = Gtk.EventControllerMotion()
         motion.connect("enter", self._on_enter)
@@ -136,6 +159,35 @@ class Island(Gtk.Box):
     def _on_drag_end(self, gesture, dx, dy):
         if self.state == "pill" and abs(dx) > 36 and abs(dx) > abs(dy):
             self.pill.cycle(+1 if dx < 0 else -1)
+
+    def _on_scroll(self, _ctrl, _dx, dy):
+        if self.state == "expanded" or dy == 0:
+            return False
+        step = "-5%" if dy > 0 else "+5%"
+        try:
+            Gio.Subprocess.new(
+                ["pactl", "set-sink-volume", "@DEFAULT_SINK@", step],
+                Gio.SubprocessFlags.NONE)
+        except GLib.Error:
+            return False
+        return True
+
+    # -- tools row callbacks -------------------------------------------------
+
+    def _tool_peek(self, kind: str, *args):
+        setter = {"screenshot": self.peek.show_screenshot,
+                  "color": self.peek.show_color,
+                  "error": self.peek.show_error}[kind]
+        self.show_peek(setter, *args)
+
+    def _clip_copied(self, text: str):
+        self.collapse()
+        # let the morph settle before the peek widens the pill
+        GLib.timeout_add(280, lambda: self.show_peek(
+            self.peek.show_clipboard, text) and False)
+
+    def _set_dnd(self, active: bool):
+        self.dnd_active = active
 
     def _on_enter(self, motion, x, y):
         if self._collapse_timeout:

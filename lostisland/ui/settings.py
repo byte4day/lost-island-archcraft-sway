@@ -31,6 +31,8 @@ MODULES = [
     ("weather", "Weather", "Weather tile in the expanded card"),
     ("system", "System stats", "CPU and RAM readout while expanded"),
     ("toggles", "Quick toggles", "Wi-Fi, Bluetooth, sound and mic"),
+    ("tools", "Tools", "Screenshot, color picker, Do Not Disturb, power"),
+    ("clipboard", "Clipboard", "Recent copied text, kept in memory only"),
 ]
 
 

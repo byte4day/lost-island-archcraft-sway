@@ -27,6 +27,7 @@ from lostisland.services.airplay import AirPlayReceiver  # noqa: E402
 from lostisland.services.bluetooth import BluetoothService  # noqa: E402
 from lostisland.services.cava import CavaService  # noqa: E402
 from lostisland.services.claude_usage import ClaudeUsageService  # noqa: E402
+from lostisland.services.clipboard import ClipboardService  # noqa: E402
 from lostisland.services.lyrics import LyricsService  # noqa: E402
 from lostisland.services.mpris import MprisService  # noqa: E402
 from lostisland.services.network import NetworkService  # noqa: E402
@@ -133,7 +134,8 @@ class LostIsland(Adw.Application):
                              weather=self.weather, system=self.system,
                              on_settings=self.open_settings, cava=self.cava,
                              lyrics=self.lyrics, claude=self.claude,
-                             recorder=self.recorder, airplay=self.airplay)
+                             recorder=self.recorder, airplay=self.airplay,
+                             clipboard=self.clipboard)
         self._wire_services()
         self.win.set_child(self.island)
         self.win.present()
@@ -175,7 +177,7 @@ class LostIsland(Adw.Application):
         opacity = min(1.0, max(0.3, float(self.cfg.get("opacity", 0.97))))
         with open(CSS_PATH) as f:
             css = (f"@define-color accent {accent};\n"
-                   f"@define-color island_bg rgba(14, 15, 17, {opacity});\n"
+                   f"@define-color island_bg rgba(0, 0, 0, {opacity});\n"
                    + f.read())
         provider.load_from_string(css)
         Gtk.StyleContext.add_provider_for_display(
@@ -221,6 +223,8 @@ class LostIsland(Adw.Application):
     def _request_quit(self) -> bool:
         if self._quit_pending:
             return GLib.SOURCE_REMOVE
+        if getattr(self, "clipboard", None) is not None:
+            self.clipboard.stop()
         if self.recorder.running or self.airplay.running:
             self._quit_pending = True
             self.recorder.stop()
@@ -267,6 +271,10 @@ class LostIsland(Adw.Application):
                         if mods.get("weather", True) else None)
         self.system = SystemService() if mods.get("system", True) else None
         self.claude = ClaudeUsageService(self.cfg.get("claude_refresh", 10))
+        if getattr(self, "clipboard", None) is not None:
+            self.clipboard.stop()
+        self.clipboard = (ClipboardService()
+                          if mods.get("clipboard", True) else None)
 
     def _wire_services(self):
         isl = self.island
@@ -289,7 +297,8 @@ class LostIsland(Adw.Application):
         if self.notifier:
             self.notifier.connect(
                 "notified",
-                lambda _s, app, summary, body, icon: isl.show_peek(
+                lambda _s, app, summary, body, icon: None if isl.dnd_active
+                else isl.show_peek(
                     isl.peek.show_notification, app, summary, body, icon))
         if self.network:
             self.network.connect(

@@ -6,23 +6,34 @@ the 3 s system sampler, the weather request. Unmapping tears it all down.
 
 from __future__ import annotations
 
+import colorsys
+import re
 import time
 import weakref
 
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
 
+from lostisland import config
+from lostisland.services import tools
+from lostisland.services.clipboard import preview as clipboard_preview
 from lostisland.services.controls import SystemControls
 from lostisland.services.recorder import system_audio_source
 from lostisland.ui.draw import pick_icon
 from lostisland.ui.launchers import LauncherRow
+from lostisland.ui.tools import circle_button
 
-POMODORO = 25 * 60
+ART_PX = 64
+_DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
+         "Saturday", "Sunday")
+_MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+           "August", "September", "October", "November", "December")
+TIMER_MIN_MINUTES, TIMER_MAX_MINUTES, TIMER_STEP = 5, 90, 5
 
 
 class Expanded(Gtk.Box):
     def __init__(self, cfg: dict, media, power, on_timer_change=None,
                  weather=None, system=None, on_settings=None, recorder=None,
-                 airplay=None):
+                 airplay=None, tools_row=None, clipboard=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=11)
         self.add_css_class("expanded")
         self.cfg = cfg
@@ -43,11 +54,16 @@ class Expanded(Gtk.Box):
         self._control_busy: set[str] = set()
         self.control_buttons: dict[str, Gtk.ToggleButton] = {}
         self.control_handlers: dict[str, int] = {}
+        self.control_labels: dict[str, Gtk.Label] = {}
+        self.on_clip_copied = None
 
+        self.tools = tools_row
+        self.clipboard = clipboard
+        self._art_css: Gtk.CssProvider | None = None
         self._build_header()
         self._build_player()
-        if cfg.get("modules", {}).get("toggles", True):
-            self._build_toggles()
+        self._build_controls(cfg.get("modules", {}).get("toggles", True))
+        self._build_volume()
         self.append(LauncherRow())
         self._build_tiles()
         self._build_footer()
@@ -82,63 +98,40 @@ class Expanded(Gtk.Box):
     # -- header: gear + connectivity chips ---------------------------------
 
     def _build_header(self):
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        gear = Gtk.Button()
-        gear.set_child(_symbol("settings"))
-        gear.set_tooltip_text("Island settings")
-        gear.add_css_class("chip-btn")
-        gear.connect("clicked", lambda *_: self.on_settings and self.on_settings())
-        spacer = Gtk.Box(hexpand=True)
-
-        self.record_button = Gtk.Button()
-        self.record_button.add_css_class("record-button")
-        record_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        self.record_icon = _symbol("videocam")
+        # Record and AirPlay live in the control grid as circles; this
+        # section only builds their state lines and the record setup panel.
+        self.record_button = circle_button("videocam",
+                                           "Record a display as MP4")
+        self.record_icon = self.record_button.get_child()
         self.record_text = Gtk.Label(label="Record")
-        record_content.append(self.record_icon)
-        record_content.append(self.record_text)
-        self.record_button.set_child(record_content)
         self.record_button.connect("clicked", self._on_record_clicked)
-        self.record_button.set_visible(self.recorder is not None)
 
-        self.airplay_button = Gtk.Button()
-        self.airplay_button.add_css_class("record-button")
-        self.airplay_button.add_css_class("airplay-button")
-        airplay_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
-                                  spacing=5)
-        airplay_content.append(_symbol("airplay"))
+        self.airplay_button = circle_button("airplay",
+                                            "Start the AirPlay receiver")
         self.airplay_text = Gtk.Label(label="AirPlay")
-        airplay_content.append(self.airplay_text)
-        self.airplay_button.set_child(airplay_content)
-        self.airplay_button.set_visible(self.airplay is not None)
         self.airplay_button.connect("clicked", self._on_airplay_clicked)
 
-        self.bt_chip = _chip("bluetooth-active-symbolic")
-        self.net_chip = _chip("network-wireless-symbolic")
+        self.clip_button = circle_button(
+            "content_paste", "Clipboard history", toggle=True)
+        self.clip_button.connect("toggled", self._on_clip_toggled)
 
-        row.append(gear)
-        row.append(spacer)
-        row.append(self.net_chip)
-        row.append(self.bt_chip)
-        row.append(self.airplay_button)
-        row.append(self.record_button)
-        self.append(row)
-
+        self._status_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                                   spacing=6)
         self.airplay_status = Gtk.Label(xalign=0)
         self.airplay_status.add_css_class("record-status")
         self.airplay_status.set_visible(False)
-        self.append(self.airplay_status)
+        self._status_box.append(self.airplay_status)
 
         self.record_status = Gtk.Label(xalign=0)
         self.record_status.add_css_class("record-status")
         self.record_status.set_visible(False)
-        self.append(self.record_status)
+        self._status_box.append(self.record_status)
 
         self.record_setup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                                     spacing=9)
         self.record_setup.add_css_class("record-setup")
         self.record_setup.set_visible(False)
-        self.append(self.record_setup)
+        self._status_box.append(self.record_setup)
 
         self.record_display_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
                                           spacing=10)
@@ -277,14 +270,15 @@ class Expanded(Gtk.Box):
     # -- media player section ---------------------------------------------
 
     def _build_player(self):
-        self.player_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.player_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.player_box.add_css_class("player")
 
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         art_frame = Gtk.Box()
         art_frame.add_css_class("art-frame")
         art_frame.set_overflow(Gtk.Overflow.HIDDEN)
         self.art = Gtk.Picture()
-        self.art.set_size_request(80, 80)
+        self.art.set_size_request(ART_PX, ART_PX)
         self.art.set_content_fit(Gtk.ContentFit.COVER)
         art_frame.append(self.art)
 
@@ -300,7 +294,8 @@ class Expanded(Gtk.Box):
         head.append(art_frame)
         head.append(meta)
 
-        seek_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        seek_box = self.seek_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.time_now = Gtk.Label(label="0:00")
         self.time_now.add_css_class("seek-time")
         self.seek = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 1, 1)
@@ -318,7 +313,7 @@ class Expanded(Gtk.Box):
         drag.connect("released", self._on_seek_released)
         self.seek.add_controller(drag)
 
-        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
+        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=28)
         controls.set_halign(Gtk.Align.CENTER)
         self.btn_prev = _media_btn("media-skip-backward-symbolic")
         self.btn_play = _media_btn("media-playback-start-symbolic", main=True)
@@ -335,42 +330,72 @@ class Expanded(Gtk.Box):
         self.append(self.player_box)
 
         # idle header shown when nothing plays
-        self.idle_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        self.idle_box.set_halign(Gtk.Align.CENTER)
-        self.big_clock = Gtk.Label()
-        self.big_clock.add_css_class("track-title")
-        self.big_date = Gtk.Label()
-        self.big_date.add_css_class("track-artist")
+        self.idle_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.idle_box.add_css_class("idle")
+        self.big_clock = Gtk.Label(xalign=0)
+        self.big_clock.add_css_class("idle-clock")
+        self.big_date = Gtk.Label(xalign=0)
+        self.big_date.add_css_class("idle-date")
         self.idle_box.append(self.big_clock)
         self.idle_box.append(self.big_date)
         self.append(self.idle_box)
 
     # -- quick toggles ------------------------------------------------------
 
-    def _build_toggles(self):
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        row.set_halign(Gtk.Align.CENTER)
-        specs = (
-            ("wifi", "wifi", "Wi-Fi",
-             "nm-connection-editor"),
-            ("bluetooth", "bluetooth", "Bluetooth",
-             "blueman-manager"),
-            ("sound", "volume_up", "Sound", "pavucontrol"),
-            ("mic", "mic", "Mic",
-             "pavucontrol"),
-        )
-        for name, icon, label, settings_app in specs:
-            button = _control_tile(icon, label)
-            button.set_tooltip_text(f"Toggle {label}; right click for settings")
-            self.control_buttons[name] = button
-            self.control_handlers[name] = button.connect(
-                "toggled", self._on_control_toggle, name)
-            right = Gtk.GestureClick(button=3)
-            right.connect("released", lambda *_args, app=settings_app:
-                          Gio.Subprocess.new([app], Gio.SubprocessFlags.NONE))
-            button.add_controller(right)
-            row.append(button)
-        self.append(row)
+    def _build_controls(self, with_toggles: bool):
+        """One grid of identical circles: connectivity first, then tools."""
+        cells: list[tuple[Gtk.Button, Gtk.Label | str]] = []
+        if with_toggles:
+            specs = (
+                ("wifi", "wifi", "Wi-Fi", "nm-connection-editor"),
+                ("bluetooth", "bluetooth", "Bluetooth", "blueman-manager"),
+                ("sound", "volume_up", "Sound", "pavucontrol"),
+                ("mic", "mic", "Mic", "pavucontrol"),
+            )
+            for name, icon, label, settings_app in specs:
+                button = circle_button(
+                    icon, f"Toggle {label}; right click for settings",
+                    toggle=True)
+                self.control_buttons[name] = button
+                self.control_handlers[name] = button.connect(
+                    "toggled", self._on_control_toggle, name)
+                right = Gtk.GestureClick(button=3)
+                right.connect("released", lambda *_args, app=settings_app:
+                              _spawn([app]))
+                button.add_controller(right)
+                caption = Gtk.Label(label=label)
+                self.control_labels[name] = caption
+                cells.append((button, caption))
+        if self.tools is not None:
+            cells += [(self.tools.dnd, "Focus"), (self.tools.power, "Power"),
+                      (self.tools.shot, "Screen"), (self.tools.region, "Area"),
+                      (self.tools.picker, "Color")]
+        if self.recorder is not None:
+            cells.append((self.record_button, self.record_text))
+        if self.airplay is not None:
+            cells.append((self.airplay_button, self.airplay_text))
+        if self.clipboard is not None and self.clipboard.available:
+            cells.append((self.clip_button, "Clipboard"))
+
+        grid = Gtk.Grid(column_spacing=4, row_spacing=10)
+        grid.set_column_homogeneous(True)
+        grid.add_css_class("controls")
+        columns = 6 if len(cells) > 8 else 4
+        for index, (button, caption) in enumerate(cells):
+            grid.attach(_cell(button, caption), index % columns,
+                        index // columns, 1, 1)
+        # grid + its slide-out panels share one zero-spacing column, so
+        # closed panels do not leave gaps; panels carry their own margin
+        section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        section.append(grid)
+        self._section = section
+        self._build_clipboard()
+        if self.tools is not None:
+            section.append(self.tools.power_revealer)
+            section.append(self.tools.message)
+        self._status_box.add_css_class("status-box")
+        section.append(self._status_box)
+        self.append(section)
 
     def _on_control_toggle(self, button: Gtk.ToggleButton, name: str):
         self._control_busy.add(name)
@@ -413,81 +438,181 @@ class Expanded(Gtk.Box):
 
     # -- tiles -------------------------------------------------------------
 
-    def _build_tiles(self):
+    # -- clipboard ----------------------------------------------------------
+
+    def _build_clipboard(self):
+        self.clip_revealer = Gtk.Revealer()
+        self.clip_revealer.set_transition_type(
+            Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.clip_revealer.set_transition_duration(180)
+        if self.clipboard is None or not self.clipboard.available:
+            return
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        panel.add_css_class("clip-panel")
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title = Gtk.Label(label="Recently copied", xalign=0, hexpand=True)
+        title.add_css_class("clip-title")
+        clear = Gtk.Button(label="Clear")
+        clear.add_css_class("clip-clear")
+        clear.connect("clicked", lambda *_: self.clipboard.clear())
+        head.append(title)
+        head.append(clear)
+        panel.append(head)
+
+        self.clip_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                                 spacing=2)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_max_content_height(196)
+        scroller.set_propagate_natural_height(True)
+        scroller.set_child(self.clip_list)
+        panel.append(scroller)
+        self.clip_revealer.set_child(panel)
+        self._section.append(self.clip_revealer)
+
+        self_ref = weakref.ref(self)
+
+        def on_changed(*_):
+            widget = self_ref()
+            if widget is not None:
+                widget._render_clipboard()
+
+        handler = self.clipboard.connect("changed", on_changed)
+        weakref.finalize(self, self.clipboard.disconnect, handler)
+        self._render_clipboard()
+
+    def _render_clipboard(self):
+        while (child := self.clip_list.get_first_child()) is not None:
+            self.clip_list.remove(child)
+        if not self.clipboard.history:
+            empty = Gtk.Label(label="Copy some text and it shows up here",
+                              xalign=0)
+            empty.add_css_class("clip-empty")
+            self.clip_list.append(empty)
+            return
+        for text in self.clipboard.history:
+            button = Gtk.Button()
+            button.add_css_class("clip-item")
+            line = Gtk.Label(label=clipboard_preview(text), xalign=0)
+            line.set_ellipsize(Pango.EllipsizeMode.END)
+            button.set_child(line)
+            button.set_tooltip_text("Copy again")
+            button.connect("clicked", self._on_clip_pick, text)
+            self.clip_list.append(button)
+
+    def _on_clip_toggled(self, button: Gtk.ToggleButton):
+        open_ = button.get_active()
+        if open_ and self.tools is not None:
+            self.tools.close_power()
+        self.clip_revealer.set_reveal_child(open_)
+
+    def _on_clip_pick(self, _button: Gtk.Button, text: str):
+        self.clipboard.copy(text)
+        self.clip_button.set_active(False)
+        if self.on_clip_copied:
+            self.on_clip_copied(text)
+
+    def _build_volume(self):
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        row.set_homogeneous(True)
-
-        # battery
-        self.battery_tile = _tile()
-        self.batt_value = Gtk.Label(label="—")
-        self.batt_value.add_css_class("tile-big")
-        self.batt_label = Gtk.Label(label="Battery")
-        self.batt_label.add_css_class("tile-sub")
-        self.battery_tile.append(self.batt_value)
-        self.battery_tile.append(self.batt_label)
-
-        # volume
-        vol_tile = _tile()
-        vol_icon = Gtk.Image.new_from_icon_name("audio-volume-high-symbolic")
-        vol_icon.set_halign(Gtk.Align.CENTER)
+        row.add_css_class("volume-row")
+        self.vol_icon = _symbol("volume_up")
         self.vol = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
         self.vol.add_css_class("vol")
+        self.vol.set_hexpand(True)
         self.vol.set_draw_value(False)
         self.vol.connect("change-value", self._on_vol_set)
-        vol_label = Gtk.Label(label="Volume")
-        vol_label.add_css_class("tile-sub")
-        vol_tile.append(vol_icon)
-        vol_tile.append(self.vol)
-        vol_tile.append(vol_label)
+        self.vol_value = Gtk.Label(label="")
+        self.vol_value.add_css_class("vol-value")
+        self.vol_value.set_width_chars(4)
+        self.vol_value.set_xalign(1)
+        row.append(self.vol_icon)
+        row.append(self.vol)
+        row.append(self.vol_value)
+        self.append(row)
 
-        # pomodoro timer
-        self.timer_tile = _tile()
+    def _build_tiles(self):
+        """One quiet line: focus timer, weather, battery."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.add_css_class("info-line")
+
+        self.timer_tile = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                                  spacing=6)
+        self.timer_tile.add_css_class("info-item")
+        self.timer_tile.append(_symbol("timer"))
         self.timer_label = Gtk.Label(label="25:00")
-        self.timer_label.add_css_class("tile-big")
-        btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        btns.set_halign(Gtk.Align.CENTER)
+        self.timer_label.add_css_class("info-value")
+        self.timer_tile.set_tooltip_text(
+            "Focus timer; scroll to change length")
+        timer_scroll = Gtk.EventControllerScroll.new(
+            Gtk.EventControllerScrollFlags.VERTICAL
+            | Gtk.EventControllerScrollFlags.DISCRETE)
+        timer_scroll.connect("scroll", self._on_timer_scroll)
+        self.timer_tile.add_controller(timer_scroll)
         self.timer_toggle = Gtk.Button()
-        self.timer_toggle.add_css_class("tile-btn")
+        self.timer_toggle.add_css_class("mini-btn")
         self.timer_toggle.set_icon_name("media-playback-start-symbolic")
+        self.timer_toggle.set_tooltip_text("Start or pause the focus timer")
         self.timer_toggle.connect("clicked", self._on_timer_toggle)
         timer_reset = Gtk.Button()
-        timer_reset.add_css_class("tile-btn")
+        timer_reset.add_css_class("mini-btn")
         timer_reset.set_icon_name("view-refresh-symbolic")
+        timer_reset.set_tooltip_text("Reset the focus timer")
         timer_reset.connect("clicked", self._on_timer_reset)
-        btns.append(self.timer_toggle)
-        btns.append(timer_reset)
         self.timer_tile.append(self.timer_label)
-        self.timer_tile.append(btns)
+        self.timer_tile.append(self.timer_toggle)
+        self.timer_tile.append(timer_reset)
 
-        # weather
-        self.weather_tile = _tile()
+        self.weather_tile = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                                    spacing=6)
+        self.weather_tile.add_css_class("info-item")
+        self.weather_tile.set_hexpand(True)
+        self.weather_tile.set_halign(Gtk.Align.CENTER)
         self.weather_icon = Gtk.Image.new_from_icon_name("weather-clear-symbolic")
-        self.weather_icon.set_pixel_size(22)
-        self.weather_icon.set_halign(Gtk.Align.CENTER)
-        self.weather_temp = Gtk.Label(label="—")
-        self.weather_temp.add_css_class("tile-big")
-        self.weather_desc = Gtk.Label(label="Weather")
-        self.weather_desc.add_css_class("tile-sub")
+        self.weather_icon.set_pixel_size(18)
+        self.weather_temp = Gtk.Label(label="")
+        self.weather_temp.add_css_class("info-value")
+        self.weather_desc = Gtk.Label(label="")
+        self.weather_desc.add_css_class("info-sub")
         self.weather_desc.set_ellipsize(Pango.EllipsizeMode.END)
-        self.weather_desc.set_max_width_chars(11)
+        self.weather_desc.set_max_width_chars(12)
         self.weather_tile.append(self.weather_icon)
         self.weather_tile.append(self.weather_temp)
         self.weather_tile.append(self.weather_desc)
 
-        for t in (self.battery_tile, vol_tile, self.timer_tile,
-                  self.weather_tile):
-            row.append(t)
+        self.battery_tile = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                                    spacing=4)
+        self.battery_tile.add_css_class("info-item")
+        self.batt_icon = _symbol("battery_full")
+        self.batt_value = Gtk.Label(label="")
+        self.batt_value.add_css_class("info-value")
+        self.batt_label = self.batt_value  # kept for older callers
+        self.battery_tile.append(self.batt_icon)
+        self.battery_tile.append(self.batt_value)
+
+        settings = Gtk.Button()
+        settings.add_css_class("mini-btn")
+        settings.set_child(_symbol("settings"))
+        settings.set_tooltip_text("Island settings")
+        settings.connect("clicked",
+                         lambda *_: self.on_settings and self.on_settings())
+
+        row.append(self.timer_tile)
+        row.append(self.weather_tile)
+        row.append(self.battery_tile)
+        row.append(settings)
         self.append(row)
 
         if self.weather is None:
             self.weather_tile.set_visible(False)
-        elif self.weather is not None:
+        else:
             self.weather.connect("changed", self._on_weather)
 
         # timer state
-        self.timer_left = POMODORO
+        self.timer_minutes = _clamp_minutes(self.cfg.get("timer_minutes", 25))
+        self.timer_left = self.timer_minutes * 60
         self.timer_running = False
         self._timer_src = 0
+        self._sync_timer_ui()
 
     def _build_footer(self):
         self.sys_label = Gtk.Label()
@@ -505,6 +630,7 @@ class Expanded(Gtk.Box):
         self.player_box.set_visible(has)
         self.idle_box.set_visible(not has)
         if not has:
+            self._set_art_tint(None)
             self._refresh_big_clock()
             self._sync_pos_timer()
             return
@@ -513,17 +639,17 @@ class Expanded(Gtk.Box):
         self.album.set_label(p.album or "")
         self.artist.set_visible(bool(p.artist))
         self.album.set_visible(bool(p.album))
+        pixbuf = None
         if p.art_path:
             try:
-                # load at display size so the picture's natural size is 92px
-                # and never inflates the card
-                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                    p.art_path, 80, 80, False)
-                self.art.set_paintable(Gdk.Texture.new_for_pixbuf(pb))
+                # load at display size so the picture never inflates the card
+                pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                    p.art_path, ART_PX, ART_PX, False)
             except GLib.Error:
-                self.art.set_paintable(None)
-        else:
-            self.art.set_paintable(None)
+                pixbuf = None
+        self.art.set_paintable(
+            Gdk.Texture.new_for_pixbuf(pixbuf) if pixbuf else None)
+        self._set_art_tint(art_tint(pixbuf) if pixbuf else None)
         playing = p.status == "Playing"
         self.btn_play.set_icon_name(
             "media-playback-pause-symbolic" if playing
@@ -531,39 +657,88 @@ class Expanded(Gtk.Box):
         self.btn_prev.set_sensitive(p.can_prev)
         self.btn_next.set_sensitive(p.can_next)
         total = p.length_us
+        # browsers often publish no track length; a bar pinned at the end
+        # with "0:00" is worse than no bar
+        self.seek_box.set_visible(total > 0)
         self.seek.set_range(0, max(1, total))
         self.time_total.set_label(_fmt_us(total))
         self._sync_pos_timer()
         self._poll_position()
 
+    def _set_art_tint(self, rgb: tuple[int, int, int] | None):
+        display = self.get_display() or Gdk.Display.get_default()
+        if self._art_css is not None:
+            Gtk.StyleContext.remove_provider_for_display(display, self._art_css)
+            self._art_css = None
+        if rgb is None:
+            return
+        base, bright = rgb, _shade(rgb, value=0.95, min_sat=0.25)
+        provider = Gtk.CssProvider()
+        provider.load_from_string(f"""
+            .player {{
+              background-image: linear-gradient(160deg,
+                  rgba({base[0]}, {base[1]}, {base[2]}, 0.62),
+                  rgba({base[0]}, {base[1]}, {base[2]}, 0.18));
+              border-color: rgba({bright[0]}, {bright[1]}, {bright[2]}, 0.22);
+            }}
+            .player scale.seek highlight {{
+              background: rgb({bright[0]}, {bright[1]}, {bright[2]});
+            }}
+        """)
+        Gtk.StyleContext.add_provider_for_display(
+            display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+        self._art_css = provider
+
     def refresh_battery(self):
         if not self.power.available:
             self.battery_tile.set_visible(False)
             return
-        self.batt_value.set_label(f"{self.power.percentage:.0f}%")
-        self.batt_label.set_label("Charging" if self.power.charging else "Battery")
+        pct = self.power.percentage
+        self.batt_value.set_label(f"{pct:.0f}%")
+        self.batt_icon.set_label(
+            "battery_charging_full" if self.power.charging else
+            "battery_full" if pct > 80 else "battery_5_bar" if pct > 55 else
+            "battery_3_bar" if pct > 30 else "battery_1_bar")
+        self.battery_tile.set_tooltip_text(
+            "Charging" if self.power.charging else "On battery")
 
     def refresh_volume(self, percent: int, muted: bool = False):
         self.vol.set_value(percent)
+        self.vol_value.set_label("Muted" if muted else f"{percent}%")
+        self.vol_icon.set_label(
+            "volume_off" if muted or percent == 0 else
+            "volume_down" if percent < 50 else "volume_up")
         if "sound" in self.control_buttons:
             self._show_control_state("sound", not muted)
 
+    def _read_volume(self):
+        def got_volume(ok: bool, out: str):
+            match = re.search(r"(\d+)%", out) if ok else None
+            if match:
+                percent = int(match.group(1))
+                tools.run(["pactl", "get-sink-mute", "@DEFAULT_SINK@"],
+                          lambda ok2, out2: self.refresh_volume(
+                              percent, ok2 and "yes" in out2))
+        tools.run(["pactl", "get-sink-volume", "@DEFAULT_SINK@"], got_volume)
+
     def refresh_network(self, name: str, kind: str, connected: bool):
-        if not connected:
-            _set_chip(self.net_chip, "network-offline-symbolic", "Offline")
-        else:
-            icon = ("network-wireless-symbolic" if "wireless" in kind
-                    else "network-wired-symbolic")
-            _set_chip(self.net_chip, icon, name or "Connected")
+        label = self.control_labels.get("wifi")
+        if label is None:
+            return
+        wireless = connected and "wireless" in kind
+        label.set_label(_short(name) if wireless and name else "Wi-Fi")
+        self.control_buttons["wifi"].get_parent().set_tooltip_text(
+            f"Connected to {name}" if connected and name else
+            "Offline" if not connected else "Connected")
 
     def refresh_bluetooth(self, device: str, connected: bool, battery: int):
-        self.bt_chip.set_visible(connected)
+        label = self.control_labels.get("bluetooth")
+        if label is None:
+            return
+        label.set_label(_short(device) if connected and device else "Bluetooth")
         if connected:
-            text = device if battery < 0 else f"{device} · {battery}%"
-            _set_chip(self.bt_chip,
-                      pick_icon(self, "bluetooth-symbolic",
-                                "network-bluetooth-symbolic",
-                                "bluetooth-active-symbolic"), text)
+            self.control_buttons["bluetooth"].get_parent().set_tooltip_text(
+                device if battery < 0 else f"{device}, {battery}% battery")
 
     def _on_weather(self, _svc, temp, desc, icon):
         self.weather_temp.set_label(temp)
@@ -575,13 +750,14 @@ class Expanded(Gtk.Box):
 
     def _on_system(self, _svc, cpu, ram, ram_gib):
         self.sys_label.set_label(
-            f"CPU {cpu}%   ·   RAM {ram_gib:.1f} GiB ({ram}%)")
+            f"CPU {cpu}%     RAM {ram_gib:.1f} GiB ({ram}%)")
 
     # -- lifecycle ----------------------------------------------------------
 
     def _on_map(self):
         self.refresh_media()
         self.refresh_battery()
+        self._read_volume()
         self._refresh_big_clock()
         if self.control_buttons:
             self._refresh_controls()
@@ -593,6 +769,7 @@ class Expanded(Gtk.Box):
             self.system.start()
 
     def _on_unmap(self):
+        self.clip_button.set_active(False)
         if self._controls_timer:
             GLib.source_remove(self._controls_timer)
             self._controls_timer = 0
@@ -644,11 +821,26 @@ class Expanded(Gtk.Box):
 
     def _on_timer_reset(self, *_):
         self.timer_running = False
-        self.timer_left = POMODORO
+        self.timer_left = self.timer_minutes * 60
         if self._timer_src:
             GLib.source_remove(self._timer_src)
             self._timer_src = 0
         self._sync_timer_ui()
+
+    def _on_timer_scroll(self, _ctrl, _dx, dy):
+        # only a stopped, untouched timer changes length
+        if self.timer_running or self.timer_left != self.timer_minutes * 60:
+            return False
+        step = -TIMER_STEP if dy > 0 else TIMER_STEP
+        minutes = _clamp_minutes(self.timer_minutes + step)
+        if minutes == self.timer_minutes:
+            return True
+        self.timer_minutes = minutes
+        self.timer_left = minutes * 60
+        self.cfg["timer_minutes"] = minutes
+        config.save(self.cfg)
+        self._sync_timer_ui()
+        return True
 
     def _timer_tick(self):
         if not self.timer_running:
@@ -673,9 +865,9 @@ class Expanded(Gtk.Box):
             "media-playback-pause-symbolic" if self.timer_running
             else "media-playback-start-symbolic")
         if self.timer_running:
-            self.timer_tile.add_css_class("tile--timer-running")
+            self.timer_tile.add_css_class("info-item--running")
         else:
-            self.timer_tile.remove_css_class("tile--timer-running")
+            self.timer_tile.remove_css_class("info-item--running")
         if self.on_timer_change:
             self.on_timer_change(text if self.timer_running else None)
 
@@ -683,7 +875,7 @@ class Expanded(Gtk.Box):
         app = Gio.Application.get_default()
         if app:
             note = Gio.Notification.new("Focus round complete")
-            note.set_body("25 minutes are up — take a break.")
+            note.set_body(f"{self.timer_minutes} minutes are up — take a break.")
             app.send_notification("pomodoro", note)
 
     def _refresh_big_clock(self):
@@ -694,7 +886,17 @@ class Expanded(Gtk.Box):
             clock = (f"{now.tm_hour % 12 or 12:02d}:{now.tm_min:02d} "
                      f"{'AM' if now.tm_hour < 12 else 'PM'}")
         self.big_clock.set_label(clock)
-        self.big_date.set_label(f"{now.tm_mday:02d}.{now.tm_mon:02d}.{now.tm_year}")
+        # spelled out here so the system locale cannot change the script
+        self.big_date.set_label(
+            f"{_DAYS[now.tm_wday]}, {now.tm_mday} {_MONTHS[now.tm_mon - 1]}")
+
+
+def _clamp_minutes(value) -> int:
+    try:
+        minutes = int(value)
+    except (TypeError, ValueError):
+        minutes = 25
+    return max(TIMER_MIN_MINUTES, min(TIMER_MAX_MINUTES, minutes))
 
 
 def _label(css: str, width: int) -> Gtk.Label:
@@ -714,45 +916,50 @@ def _media_btn(icon: str, main: bool = False) -> Gtk.Button:
     return btn
 
 
-def _control_tile(icon: str, label: str) -> Gtk.ToggleButton:
-    button = Gtk.ToggleButton()
-    button.add_css_class("control-tile")
-    content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-    content.set_halign(Gtk.Align.CENTER)
-    content.append(_symbol(icon))
-    text = Gtk.Label(label=label)
-    text.add_css_class("control-label")
-    content.append(text)
-    button.set_child(content)
-    return button
-
-
 def _symbol(name: str) -> Gtk.Label:
     icon = Gtk.Label(label=name)
     icon.add_css_class("symbol-icon")
     return icon
 
 
-def _chip(icon: str) -> Gtk.Box:
-    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-    box.add_css_class("chip")
-    img = Gtk.Image.new_from_icon_name(icon)
-    img.set_pixel_size(15)
-    box.append(img)
-    return box
+def _cell(button: Gtk.Button, caption: Gtk.Label | str) -> Gtk.Box:
+    """A circle with its caption underneath, Control Center style."""
+    cell = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+    cell.set_halign(Gtk.Align.CENTER)
+    button.set_halign(Gtk.Align.CENTER)
+    label = caption if isinstance(caption, Gtk.Label) else Gtk.Label(label=caption)
+    label.add_css_class("circle-label")
+    label.set_ellipsize(Pango.EllipsizeMode.END)
+    label.set_max_width_chars(10)
+    cell.append(button)
+    cell.append(label)
+    return cell
 
 
-def _set_chip(chip: Gtk.Box, icon: str, text: str):
-    img = chip.get_first_child()
-    img.set_from_icon_name(icon)
-    chip.set_tooltip_text(text)
+def _short(text: str, limit: int = 9) -> str:
+    return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
-def _tile() -> Gtk.Box:
-    tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-    tile.add_css_class("tile")
-    tile.set_valign(Gtk.Align.CENTER)
-    return tile
+def _spawn(argv: list[str]):
+    try:
+        Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE)
+    except GLib.Error:
+        pass
+
+
+def _shade(rgb, value: float, min_sat: float = 0.0):
+    h, sat, _v = colorsys.rgb_to_hsv(*(c / 255 for c in rgb))
+    r, g, b = colorsys.hsv_to_rgb(h, max(min_sat, min(sat, 0.85)), value)
+    return int(r * 255), int(g * 255), int(b * 255)
+
+
+def art_tint(pixbuf: GdkPixbuf.Pixbuf) -> tuple[int, int, int]:
+    """Dominant color of the cover, darkened enough for white text."""
+    one = pixbuf.scale_simple(1, 1, GdkPixbuf.InterpType.BILINEAR)
+    data = one.get_pixels()
+    rgb = (data[0], data[1], data[2])
+    _h, sat, v = colorsys.rgb_to_hsv(*(c / 255 for c in rgb))
+    return _shade(rgb, value=max(0.30, min(v, 0.55)), min_sat=min(sat, 0.5))
 
 
 def _fmt_us(us: int) -> str:

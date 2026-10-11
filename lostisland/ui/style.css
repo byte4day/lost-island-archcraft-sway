@@ -1,5 +1,15 @@
 /* Lost Island — visual identity.
-   One surface, three moods: pill, peek, expanded. */
+   The island is hardware-black, like the real thing. Controls are quiet
+   graphite circles; "on" is one blue. The only color that moves is the
+   player, which takes its tint from the current album art (expanded.py). */
+
+@define-color ink #f5f5f7;
+@define-color ink_2 rgba(235, 235, 245, 0.62);
+@define-color ink_3 rgba(235, 235, 245, 0.36);
+@define-color raised #1c1c1e;
+@define-color raised_hover #2c2c2e;
+@define-color hairline rgba(255, 255, 255, 0.07);
+@define-color danger #ff6961;
 
 window.island-window {
   background: transparent;
@@ -7,36 +17,39 @@ window.island-window {
 
 .island {
   background: @island_bg;
-  background-image: linear-gradient(to bottom,
-      rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.0) 28%);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-top-color: rgba(255, 255, 255, 0.18);
-  border-radius: 26px;
-  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.48);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 24px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
   transition: border-radius 260ms cubic-bezier(0.34, 1.3, 0.64, 1);
-  color: #f7f7f8;
+  color: @ink;
+  font-family: "Noto Sans", sans-serif;
 }
 
 .island--expanded {
-  border-radius: 28px;
+  border-radius: 34px;
 }
 
 /* ---- collapsed pill ---- */
 
 .pill {
-  padding: 6px 15px;
+  padding: 6px 14px;
 }
 
-.pill-clock {
+.pill-clock,
+.pill-title,
+.pill-lyric {
   font-weight: 600;
   font-size: 13px;
-  letter-spacing: 0.2px;
+  font-feature-settings: "tnum";
 }
 
-.pill-title {
-  font-weight: 600;
-  font-size: 13px;
-  color: rgba(242, 242, 244, 0.92);
+.pill-title,
+.pill-lyric {
+  color: rgba(245, 245, 247, 0.92);
+}
+
+.pill-art {
+  border-radius: 6px;
 }
 
 .pill-arch {
@@ -44,16 +57,32 @@ window.island-window {
   min-height: 16px;
 }
 
-.timer-chip {
+.timer-chip,
+.pill-batt {
   font-weight: 700;
   font-size: 12px;
   color: @accent;
+  font-feature-settings: "tnum";
+}
+
+.record-chip {
+  color: @danger;
+  font-size: 12px;
+  font-weight: 700;
+  font-feature-settings: "tnum";
+}
+
+.pill-claude {
+  font-weight: 700;
+  font-size: 13px;
+  color: @ink;
+  font-feature-settings: "tnum";
 }
 
 /* ---- peek capsule ---- */
 
 .peek {
-  padding: 10px 22px;
+  padding: 10px 20px;
 }
 
 .peek-title {
@@ -63,262 +92,211 @@ window.island-window {
 
 .peek-body {
   font-size: 12px;
-  color: rgba(242, 242, 244, 0.65);
+  color: @ink_2;
 }
 
 .peek-icon {
-  color: @accent;
+  color: @ink;
 }
 
 .peek levelbar trough {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
   border: none;
   border-radius: 99px;
-  min-height: 6px;
-  min-width: 150px;
+  min-height: 5px;
+  min-width: 140px;
 }
 
 .peek levelbar block.filled {
-  background: #ffffff;
-  border: none;
-  border-radius: 99px;
-  min-height: 6px;
-}
-
-/* ---- expanded card ---- */
-
-.expanded {
-  padding: 16px;
-}
-
-.art-frame {
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.art-frame picture {
-  border-radius: 16px;
-}
-
-.track-title {
-  font-weight: 600;
-  font-size: 15px;
-}
-
-.track-artist {
-  font-size: 13px;
-  color: rgba(242, 242, 244, 0.70);
-}
-
-.track-album {
-  font-size: 11px;
-  color: rgba(242, 242, 244, 0.45);
-}
-
-.seek-time {
-  font-size: 10px;
-  font-weight: 600;
-  color: rgba(242, 242, 244, 0.55);
-  font-feature-settings: "tnum";
-}
-
-scale.seek {
-  padding: 0;
-}
-
-scale.seek trough {
-  background: rgba(255, 255, 255, 0.12);
+  background: @ink;
   border: none;
   border-radius: 99px;
   min-height: 5px;
 }
 
-scale.seek highlight {
-  background: @accent;
+/* ---- expanded card ---- */
+
+.expanded {
+  padding: 14px 14px 12px;
+}
+
+/* the player: tinted from album art at runtime */
+.player {
+  background-color: @raised;
+  border: 1px solid @hairline;
+  border-radius: 22px;
+  padding: 12px 14px 8px;
+}
+
+.art-frame,
+.art-frame picture {
+  border-radius: 12px;
+}
+
+.art-frame {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.track-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.track-artist {
+  font-size: 13px;
+  color: @ink_2;
+}
+
+.track-album {
+  font-size: 11px;
+  color: @ink_3;
+}
+
+.seek-time {
+  font-size: 10px;
+  font-weight: 600;
+  color: @ink_2;
+  font-feature-settings: "tnum";
+}
+
+scale.seek,
+scale.vol {
+  padding: 0;
+}
+
+scale.seek trough,
+scale.vol trough {
+  background: rgba(255, 255, 255, 0.16);
+  border: none;
+  border-radius: 99px;
+  min-height: 4px;
+}
+
+scale.seek highlight,
+scale.vol highlight {
+  background: @ink;
   border: none;
   border-radius: 99px;
 }
 
-scale.seek slider {
-  background: #ffffff;
+scale.seek slider,
+scale.vol slider {
+  background: @ink;
   border: none;
   border-radius: 99px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  opacity: 0;
+  transition: opacity 120ms ease, min-width 120ms ease, min-height 120ms ease,
+    margin 120ms ease;
+}
+
+scale.seek:hover slider,
+scale.vol:hover slider {
+  opacity: 1;
   min-width: 12px;
   min-height: 12px;
   margin: -4px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 .media-btn {
   background: transparent;
   border: none;
   border-radius: 99px;
-  min-width: 34px;
-  min-height: 34px;
-  color: #f2f2f4;
+  min-width: 36px;
+  min-height: 36px;
+  color: @ink;
   -gtk-icon-size: 18px;
 }
 
 .media-btn:hover {
-  background: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .media-btn:active {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.media-btn:disabled {
+  color: @ink_3;
 }
 
 .media-btn--main {
-  background: rgba(255, 255, 255, 0.10);
-  min-width: 46px;
-  min-height: 46px;
-  -gtk-icon-size: 22px;
+  min-width: 42px;
+  min-height: 42px;
+  -gtk-icon-size: 24px;
 }
 
-.media-btn--main:hover {
-  background: rgba(255, 255, 255, 0.16);
+/* idle: no music — big quiet clock */
+.idle {
+  padding: 4px 6px 2px;
 }
 
-/* ---- tiles ---- */
-
-.tile {
-  background: #232529;
-  border: 1px solid rgba(255, 255, 255, 0.045);
-  border-radius: 16px;
-  padding: 10px;
-  min-width: 72px;
-}
-
-.tile-big {
-  font-weight: 700;
-  font-size: 17px;
+.idle-clock {
+  font-size: 40px;
+  font-weight: 300;
   font-feature-settings: "tnum";
 }
 
-.tile-sub {
-  font-size: 10px;
-  color: rgba(242, 242, 244, 0.55);
+.idle-date {
+  font-size: 13px;
+  font-weight: 600;
+  color: @ink_2;
 }
 
-.tile-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: none;
-  border-radius: 99px;
-  min-height: 22px;
-  min-width: 22px;
-  padding: 0;
-  color: #f2f2f4;
-  -gtk-icon-size: 11px;
+/* ---- control grid: one shape for every switch and tool ---- */
+
+.controls {
+  margin: 4px 0 0;
 }
 
-.tile-btn:hover {
-  background: rgba(255, 255, 255, 0.16);
-}
-
-.tile--timer-running .tile-big {
-  color: @accent;
-}
-
-scale.vol {
-  padding: 0;
-}
-
-scale.vol trough {
-  background: rgba(255, 255, 255, 0.12);
-  border: none;
-  border-radius: 99px;
-  min-height: 5px;
-  min-width: 60px;
-}
-
-scale.vol highlight {
-  background: #ffffff;
-  border: none;
-  border-radius: 99px;
-}
-
-scale.vol slider {
-  background: #ffffff;
-  border: none;
-  border-radius: 99px;
-  min-width: 10px;
-  min-height: 10px;
-  margin: -3px;
-}
-
-/* ---- header chips + quick toggles ---- */
-
-.chip {
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 99px;
-  min-width: 27px;
-  min-height: 27px;
-  padding: 0;
-  color: rgba(242, 242, 244, 0.70);
-}
-
-.chip-btn {
-  background: rgba(255, 255, 255, 0.07);
-  border: none;
-  border-radius: 99px;
-  min-width: 26px;
-  min-height: 26px;
-  padding: 0;
-  color: rgba(242, 242, 244, 0.70);
-  -gtk-icon-size: 13px;
-}
-
-.chip-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
-  color: #f2f2f4;
-}
-
-.toggle-btn {
-  background: rgba(255, 255, 255, 0.07);
+.circle {
+  background: @raised;
   border: none;
   border-radius: 99px;
   min-width: 44px;
-  min-height: 46px;
-  color: #f2f2f4;
-  -gtk-icon-size: 17px;
+  min-height: 44px;
+  padding: 0;
+  color: @ink;
+  transition: background 120ms ease;
 }
 
-.toggle-btn:hover {
-  background: rgba(255, 255, 255, 0.13);
+.circle:hover {
+  background: @raised_hover;
 }
 
-.toggle-btn:checked {
+.circle:active {
+  background: #3a3a3c;
+}
+
+.circle:checked {
   background: @accent;
-  color: #0c0c0e;
+  color: #ffffff;
 }
 
-/* Four quiet, Control Center-style system switches. */
-.control-tile {
-  background: #292b2f;
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 15px;
-  min-width: 72px;
-  min-height: 58px;
-  padding: 6px;
-  color: #f2f2f4;
+.circle:disabled {
+  opacity: 0.4;
 }
 
-.control-tile:hover {
-  background: #36383c;
+.circle .symbol-icon {
+  font-size: 20px;
 }
 
-.control-tile:checked {
-  background: @accent;
-  border-color: @accent;
-  color: #18191b;
-}
-
-.control-tile:disabled {
-  opacity: 0.45;
-}
-
-.control-label {
+.circle-label {
   font-size: 10px;
   font-weight: 600;
+  color: @ink_2;
+}
+
+.record-button--active {
+  background: @danger;
+  color: #ffffff;
+}
+
+.airplay-button--active {
+  background: @accent;
+  color: #ffffff;
 }
 
 .symbol-icon {
@@ -328,156 +306,255 @@ scale.vol slider {
   font-feature-settings: "liga";
 }
 
-.chip-btn .symbol-icon {
-  font-size: 17px;
+/* power choices slide out under the grid */
+.power-row {
+  margin-top: 2px;
 }
 
-.launchers {
-  margin-top: 1px;
+.power-btn {
+  background: @raised;
+  border: none;
+  border-radius: 12px;
+  min-height: 32px;
+  padding: 0 4px;
+  color: @ink;
+  font-size: 11px;
+  font-weight: 600;
 }
+
+.power-btn:hover {
+  background: @raised_hover;
+}
+
+.power-btn--confirm,
+.power-btn--confirm:hover {
+  background: @danger;
+  color: #ffffff;
+}
+
+/* ---- volume ---- */
+
+.volume-row {
+  background: @raised;
+  border-radius: 99px;
+  padding: 8px 14px;
+}
+
+.volume-row .symbol-icon {
+  font-size: 18px;
+  color: @ink_2;
+}
+
+.vol-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: @ink_2;
+  font-feature-settings: "tnum";
+}
+
+/* ---- launchers ---- */
 
 .launcher-btn {
-  background: #222428;
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 14px;
-  min-height: 38px;
-  padding: 4px 8px;
-  color: #f2f2f4;
+  background: @raised;
+  border: none;
+  border-radius: 99px;
+  min-height: 34px;
+  padding: 0 8px;
+  color: @ink;
   font-size: 12px;
   font-weight: 600;
 }
 
 .launcher-btn:hover {
-  background: #303237;
+  background: @raised_hover;
 }
 
 .launcher-btn:active {
-  background: rgba(255, 255, 255, 0.24);
+  background: #3a3a3c;
 }
 
 .launcher-logo {
-  min-width: 21px;
-  min-height: 21px;
+  min-width: 18px;
+  min-height: 18px;
 }
 
-.record-button {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 99px;
-  min-height: 26px;
-  padding: 0 9px;
-  color: #d6d8dc;
-  font-size: 11px;
-  font-weight: 600;
+/* ---- info line: timer, weather, battery ---- */
+
+.info-line {
+  padding: 2px 6px 0;
 }
 
-.record-button .symbol-icon {
+.info-item .symbol-icon {
   font-size: 16px;
+  color: @ink_2;
 }
 
-.record-button:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.record-button--active {
-  color: #f28a8d;
-}
-
-.airplay-button--active {
-  background: #2d3034;
-  border-color: #cfd2d6;
-  color: #f2f2f4;
-}
-
-.record-chip {
-  color: #ee777d;
-  font-size: 11px;
+.info-value {
+  font-size: 13px;
   font-weight: 700;
   font-feature-settings: "tnum";
 }
 
-.record-status {
-  color: #bfc2c8;
+.info-sub {
+  font-size: 11px;
+  color: @ink_2;
+}
+
+.info-item--running .info-value,
+.info-item--running .symbol-icon {
+  color: @accent;
+}
+
+.mini-btn {
+  background: transparent;
+  border: none;
+  border-radius: 99px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  color: @ink_2;
+  -gtk-icon-size: 12px;
+}
+
+.mini-btn:hover {
+  background: @raised_hover;
+  color: @ink;
+}
+
+.sys-stats {
   font-size: 10px;
+  font-weight: 600;
+  color: @ink_3;
+  font-feature-settings: "tnum";
+}
+
+/* ---- recording setup + messages ---- */
+
+.record-status {
+  color: @ink_2;
+  font-size: 11px;
 }
 
 .record-setup {
-  background: #202226;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 15px;
+  background: @raised;
+  border-radius: 18px;
   padding: 12px;
-  color: #e9eaec;
+  color: @ink;
   font-size: 11px;
 }
 
 .record-setup dropdown {
   min-width: 175px;
-  background: #303237;
-  color: #f2f2f4;
+  background: @raised_hover;
+  color: @ink;
   border-radius: 9px;
 }
 
 .record-setup checkbutton {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .record-setup checkbutton:checked check {
-  background: #cfd2d6;
-  color: #18191b;
+  background: @accent;
+  color: #ffffff;
 }
 
 .record-action {
-  background: #34363b;
-  color: #e9eaec;
-  border-radius: 9px;
-  padding: 4px 10px;
+  background: @raised_hover;
+  color: @ink;
+  border: none;
+  border-radius: 99px;
+  padding: 4px 14px;
   font-size: 11px;
+  font-weight: 600;
 }
 
 .record-action--primary {
-  background: #cfd2d6;
-  color: #18191b;
-  font-weight: 700;
+  background: @accent;
+  color: #ffffff;
 }
 
-.launcher-message {
-  color: #ffb4ab;
+.launcher-message,
+.card-message {
+  color: @danger;
   font-size: 11px;
 }
 
-.control-tile:focus-visible,
+/* keyboard focus stays visible on every control */
+.circle:focus-visible,
 .launcher-btn:focus-visible,
-.record-button:focus-visible,
+.power-btn:focus-visible,
 .record-action:focus-visible,
-.chip-btn:focus-visible,
 .media-btn:focus-visible,
-.tile-btn:focus-visible {
+.mini-btn:focus-visible {
   outline: 2px solid @accent;
   outline-offset: 2px;
 }
 
-.sys-stats {
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(242, 242, 244, 0.45);
-  font-feature-settings: "tnum";
+/* ---- clipboard history ---- */
+
+.clip-panel {
+  background: @raised;
+  border-radius: 18px;
+  padding: 10px 8px 8px;
 }
 
-.pill-batt {
+.clip-title {
   font-size: 11px;
   font-weight: 700;
+  color: @ink_2;
+  padding-left: 6px;
+}
+
+.clip-clear {
+  background: transparent;
+  border: none;
+  border-radius: 99px;
+  min-height: 22px;
+  padding: 0 10px;
   color: @accent;
-}
-
-.pill-lyric {
+  font-size: 11px;
   font-weight: 600;
-  font-size: 13px;
-  color: rgba(242, 242, 244, 0.92);
 }
 
-.pill-claude {
-  font-weight: 700;
-  font-size: 13px;
-  color: #d97757;
-  font-feature-settings: "tnum";
+.clip-clear:hover {
+  background: @raised_hover;
+}
+
+.clip-item {
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  min-height: 30px;
+  padding: 0 8px;
+  color: @ink;
+  font-size: 12px;
+}
+
+.clip-item:hover {
+  background: @raised_hover;
+}
+
+.clip-empty {
+  font-size: 12px;
+  color: @ink_3;
+  padding: 6px;
+}
+
+.clip-item:focus-visible,
+.clip-clear:focus-visible {
+  outline: 2px solid @accent;
+  outline-offset: 1px;
+}
+
+/* slide-out panels under the control grid carry their own gap */
+.clip-panel,
+.power-row {
+  margin-top: 12px;
+}
+
+.card-message,
+.status-box > label,
+.status-box > .record-setup {
+  margin-top: 8px;
 }

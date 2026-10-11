@@ -3,7 +3,7 @@ volume change, charger plug, a notification, a network switch."""
 
 from __future__ import annotations
 
-from gi.repository import Gtk, Pango
+from gi.repository import Gdk, GdkPixbuf, Gtk, Pango
 
 from lostisland.ui.draw import pick_icon
 
@@ -98,3 +98,30 @@ class Peek(Gtk.Box):
             self._set("network-wireless-symbolic", name, "Wi-Fi")
         else:
             self._set("network-wired-symbolic", name, "Ethernet")
+
+    def show_screenshot(self, filename: str):
+        icon = pick_icon(self, "camera-photo-symbolic",
+                         "applets-screenshooter-symbolic", "image-x-generic")
+        self._set(icon, "Screenshot copied", filename)
+
+    def show_color(self, hex_color: str):
+        self._set("color-select-symbolic", hex_color, "Copied to clipboard")
+        rgb = int(hex_color.lstrip("#"), 16)
+        swatch = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, 20, 20)
+        swatch.fill((rgb << 8) | 0xFF)
+        self.icon.set_from_paintable(Gdk.Texture.new_for_pixbuf(swatch))
+
+    def show_dnd(self, active: bool):
+        if active:
+            self._set("notifications-disabled-symbolic", "Do Not Disturb",
+                      "Notifications are hidden")
+        else:
+            self._set("preferences-system-notifications-symbolic",
+                      "Notifications on")
+
+    def show_error(self, text: str):
+        self._set("dialog-warning-symbolic", text)
+
+    def show_clipboard(self, text: str):
+        line = " ".join(text.split())
+        self._set("edit-paste-symbolic", "Copied", line)

@@ -57,12 +57,16 @@ DEFAULTS = {
         "weather": False,
         "system": False,
         "toggles": True,
+        "tools": True,
+        "clipboard": True,
         "lyrics": False,
     },
     # weather location ("" = auto by IP); any wttr.in place name works
     "weather_city": "",
     # accent color used for progress bars and highlights
-    "accent": "#CFD2D6",
+    "accent": "#0A84FF",
+    # focus timer length in minutes (scroll the timer tile to change)
+    "timer_minutes": 25,
 }
 
 
