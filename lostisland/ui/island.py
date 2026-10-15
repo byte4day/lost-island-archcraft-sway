@@ -69,7 +69,8 @@ class Island(Gtk.Box):
                                  weather=weather, system=system,
                                  on_settings=on_settings, recorder=recorder,
                                  airplay=airplay, tools_row=tools_row,
-                                 clipboard=clipboard)
+                                 clipboard=clipboard,
+                                 claude_status=claude_status)
         self.expanded.on_clip_copied = self._clip_copied
         self.expanded.on_edit_changed = lambda _editing: self._cancel_collapse()
         if tools_row is not None:
@@ -307,10 +308,9 @@ class Island(Gtk.Box):
         if self.state == "banner":
             return
         if self.state in ("pill", "peek"):
-            primary = self.pill._activity
-            if primary is not None and primary["kind"] == "claude":
-                self.claude_status.focus(primary.get("session"))
-            elif self.cfg.get("click_action", "cycle") == "cycle":
+            # a click always does what the setting says; what Claude is up
+            # to is listed in the card, with a button to its terminal
+            if self.cfg.get("click_action", "cycle") == "cycle":
                 self.pill.cycle(+1)
             else:
                 self.expand()

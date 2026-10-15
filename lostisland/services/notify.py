@@ -108,8 +108,11 @@ class NotifyService(GObject.Object):
         self._conn.add_filter(self._on_message)
 
     def _on_message(self, conn, message, incoming):
+        # A monitor must never send anything. Returning None drops each
+        # message after reading it, so GDBus does not auto-reply to the
+        # Notify calls it sees (dbus-daemon closes monitors that do).
         if not incoming:
-            return message
+            return None
         try:
             if (message.get_interface() == "org.freedesktop.Notifications"
                     and message.get_member() == "Notify"):
@@ -121,7 +124,7 @@ class NotifyService(GObject.Object):
                                   actions, hints)
         except (GLib.Error, ValueError):
             pass
-        return message
+        return None
 
     def _emit(self, app, icon, summary, text, actions, hints):
         hints = hints or {}

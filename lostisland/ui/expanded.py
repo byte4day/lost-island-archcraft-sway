@@ -37,7 +37,8 @@ HIGH_CPU, HIGH_RAM = 80, 85
 class Expanded(Gtk.Box):
     def __init__(self, cfg: dict, media, power, timer=None,
                  weather=None, system=None, on_settings=None, recorder=None,
-                 airplay=None, tools_row=None, clipboard=None):
+                 airplay=None, tools_row=None, clipboard=None,
+                 claude_status=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=11)
         self.add_css_class("expanded")
         self.cfg = cfg
@@ -46,6 +47,7 @@ class Expanded(Gtk.Box):
         self.weather = weather
         self.system = system
         self.timer = timer
+        self.claude_status = claude_status
         self.on_settings = on_settings
         self.recorder = recorder
         self.airplay = airplay
@@ -67,6 +69,7 @@ class Expanded(Gtk.Box):
         self.clipboard = clipboard
         self._art_css: Gtk.CssProvider | None = None
         self._build_header()
+        self._build_claude()
         self._build_player()
         self._build_controls(cfg.get("modules", {}).get("toggles", True))
         self._build_volume()
@@ -280,6 +283,70 @@ class Expanded(Gtk.Box):
                 else message)
 
     # -- media player section ---------------------------------------------
+
+    # -- Claude Code sessions --------------------------------------------------
+
+    def _build_claude(self):
+        """What each Claude Code session is up to, with a jump to its
+        terminal. Hidden when no session is working, waiting or done."""
+        self.claude_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                                  spacing=2)
+        self.claude_box.add_css_class("platter")
+        self.claude_box.add_css_class("claude-platter")
+        self.claude_box.set_visible(False)
+        self.append(self.claude_box)
+        if self.claude_status is None:
+            return
+        self_ref = weakref.ref(self)
+
+        def changed(*_):
+            widget = self_ref()
+            if widget is not None:
+                widget._render_claude()
+
+        handler = self.claude_status.connect("changed", changed)
+        weakref.finalize(self, self.claude_status.disconnect, handler)
+        self._render_claude()
+
+    def _render_claude(self):
+        from lostisland.ui.activity import CLAUDE_SVG, claude_text
+        from lostisland.ui.draw import SparkIcon
+        while (child := self.claude_box.get_first_child()) is not None:
+            self.claude_box.remove(child)
+        sessions = self.claude_status.sessions[:3]
+        self.claude_box.set_visible(bool(sessions))
+        for session in sessions:
+            state = session.get("state")
+            row = Gtk.Button()
+            row.add_css_class("claude-row")
+            row.set_tooltip_text("Open this session's terminal")
+            row.connect("clicked", lambda _b, s=session:
+                        self.claude_status.focus(s))
+            line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            spark = SparkIcon(CLAUDE_SVG, 18)
+            spark.set_mode("spin" if state in ("thinking", "tool") else
+                           "breathe" if state == "needs" else "still")
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0,
+                           hexpand=True)
+            name = Gtk.Label(label=session.get("project") or "Claude Code",
+                             xalign=0)
+            name.add_css_class("claude-project")
+            status = Gtk.Label(label=claude_text(session), xalign=0)
+            status.add_css_class("claude-status")
+            status.set_ellipsize(Pango.EllipsizeMode.END)
+            if state == "needs":
+                status.add_css_class("tone-orange")
+            elif state == "done":
+                status.add_css_class("tone-green")
+            text.append(name)
+            text.append(status)
+            go = _symbol("open_in_new")
+            go.add_css_class("claude-go")
+            line.append(spark)
+            line.append(text)
+            line.append(go)
+            row.set_child(line)
+            self.claude_box.append(row)
 
     def _build_player(self):
         self.player_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)

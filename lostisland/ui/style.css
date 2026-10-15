@@ -853,3 +853,39 @@ scale.vol:hover slider {
 .status-box > .record-setup {
   margin-top: 8px;
 }
+
+/* ---- Claude Code sessions in the card ---- */
+
+.claude-platter {
+  padding: 6px;
+}
+
+.claude-row {
+  background: transparent;
+  border: none;
+  border-radius: 16px;
+  padding: 7px 10px;
+  color: @ink;
+}
+
+.claude-row:hover {
+  background: @glass_hi;
+}
+
+.claude-project {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.claude-status {
+  font-size: 12px;
+  color: @ink_2;
+}
+
+.claude-go {
+  font-size: 16px;
+  color: @ink_3;
+}
+
+.claude-status.tone-orange { color: @warn; }
+.claude-status.tone-green { color: @ok; }

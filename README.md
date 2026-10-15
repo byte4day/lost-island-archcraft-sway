@@ -42,7 +42,7 @@ Several things can be live at once. The most important one fills the pill and th
 5. **Downloads and copies**: a ring and the percentage or size received.
 6. **Focus timer**: a progress ring and the time left. A round ends with a chime and a peek.
 
-Click the Claude activity to bring its terminal to the front. Click the bubble for music to switch to the player, or for the timer to pause it.
+A click on the pill always opens the card. The card lists each Claude Code session with what it is doing; click one to bring its terminal to the front. Click the bubble for Claude to jump to its terminal, for music to switch to the player, or for the timer to pause it.
 
 **Claude Code status** needs its hooks once: `PYTHONPATH="$HOME/.local/share/lost-island" python3 -m lostisland --setup-claude-status`. It copies a small hook to `~/.config/lost-island/`, backs up `~/.claude/settings.json`, and adds the hook to the session events without touching your other hooks. Claude Code sessions then report their status. `--remove-claude-status` takes the hooks out again.
 
@@ -73,7 +73,6 @@ Volume, brightness and Caps Lock changes, and plugging in the charger (a battery
 - Scroll over the pill to change volume by 5%.
 - Middle-click the pill to play or pause.
 - Right-click opens or closes the card. A horizontal swipe changes the pill face.
-- With a Claude activity in the pill, a click brings that terminal to the front.
 
 To open the card from the keyboard, add this to your Sway config:
 
