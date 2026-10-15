@@ -50,6 +50,28 @@ def rank(activities: list[dict]) -> list[dict]:
     return sorted(activities, key=priority, reverse=True)
 
 
+MUSIC_FACES = ("auto", "title", "lyrics", "compact")
+
+
+def place(activities: list[dict], face: str):
+    """(what the pill shows, what the bubble shows) for ranked activities.
+
+    On a music face, music in first place is drawn by the face itself, so
+    the pill gets None for it. On any other face (clock, weather...) the
+    face never hides music: playing music moves to the bubble instead.
+    """
+    if face in MUSIC_FACES:
+        first = activities[0] if activities else None
+        pill = first if first and first["kind"] != "music" else None
+        bubble = activities[1] if len(activities) > 1 else None
+        return pill, bubble
+    music = next((a for a in activities if a["kind"] == "music"), None)
+    others = [a for a in activities if a["kind"] != "music"]
+    pill = others[0] if others else None
+    bubble = music or (others[1] if len(others) > 1 else None)
+    return pill, bubble
+
+
 def claude_text(activity: dict) -> str:
     state = activity.get("state")
     if state == "done":
@@ -133,7 +155,9 @@ class ActivityView(Gtk.Box):
                 shown.append(self.art_frame)
             if a.get("tint"):
                 self.eq.color = a["tint"]
-            shown.append(self.eq)
+            # the bubble holds one thing: the cover, or the bars without one
+            if not (self.compact and shown):
+                shown.append(self.eq)
             self._only(*shown)
             self.eq.set_playing(bool(a.get("playing")))
         elif kind == "claude":

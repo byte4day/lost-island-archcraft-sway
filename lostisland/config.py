@@ -25,7 +25,8 @@ DEFAULTS = {
     # sit on top of panels/bars instead of being pushed below them
     "overlap_panel": False,
     # keep a strip at the top free so windows start below the pill
-    "reserve_space": True,
+    # (off: the pill floats over windows and they get the full height)
+    "reserve_space": False,
     # "island" floats below the edge; "notch" hangs from it, MacBook style
     "shape": "island",
     # monitor connector name ("" = primary / compositor default)

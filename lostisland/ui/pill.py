@@ -166,6 +166,10 @@ class Pill(Gtk.Box):
         self.cfg["pill_face"] = faces[(i + step) % len(faces)]
         config.save(self.cfg)
         self.render()
+        if self.on_face_changed:
+            self.on_face_changed()
+
+    on_face_changed = None
 
     # -- rendering ----------------------------------------------------------
 

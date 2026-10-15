@@ -106,3 +106,19 @@ class MiscTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlaceTests(unittest.TestCase):
+    def test_clock_face_never_hides_music(self):
+        from lostisland.ui.activity import place
+        music = {"kind": "music"}
+        claude = {"kind": "claude", "state": "tool"}
+        self.assertEqual(place([music], "clock"), (None, music))
+        self.assertEqual(place([music, claude], "clock"), (claude, music))
+
+    def test_music_face_draws_music_itself(self):
+        from lostisland.ui.activity import place
+        music = {"kind": "music"}
+        timer = {"kind": "timer", "running": True}
+        self.assertEqual(place([music, timer], "auto"), (None, timer))
+        self.assertEqual(place([], "auto"), (None, None))

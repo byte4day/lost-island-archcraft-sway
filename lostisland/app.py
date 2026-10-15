@@ -169,15 +169,15 @@ class LostIsland(Adw.Application):
                              transfers=self.transfers)
         self._wire_services()
         self.island.set_shape(self.cfg.get("shape", "island"))
+        self.island.on_state = lambda state: self._set_raised(state != "pill")
         self.win.set_child(IslandShell(self.island))
         self.win.present()
         self.island.on_media_changed()
 
     def _apply_layer(self):
         ls, win = self._layer_shell, self.win
-        layer = (ls.Layer.OVERLAY if self.cfg.get("layer") == "overlay"
-                 else ls.Layer.TOP)
-        ls.set_layer(win, layer)
+        self._raised = None
+        self._set_raised(False)
         ls.set_anchor(win, ls.Edge.TOP, True)
         notch = self.cfg.get("shape", "island") == "notch"
         # notch style hangs from the screen edge, like a MacBook notch
@@ -189,7 +189,7 @@ class LostIsland(Adw.Application):
         # hiding their title bars under the island.
         if self.cfg.get("overlap_panel", True):
             zone = -1
-        elif self.cfg.get("reserve_space", True):
+        elif self.cfg.get("reserve_space", False):
             # exactly down to the pill's bottom edge. The compositor adds the
             # top margin itself, and Sway's own window gap follows, so the
             # space under the pill matches the gaps between windows.
@@ -198,6 +198,19 @@ class LostIsland(Adw.Application):
             zone = 0
         ls.set_exclusive_zone(win, zone)
         self._pick_monitor()
+
+    def _set_raised(self, raised: bool):
+        """The resting pill stays behind fullscreen video (layer "top").
+        A peek, a notification or the open card rises above it (overlay),
+        so volume changes and banners still show during a film."""
+        ls = self._layer_shell
+        if ls is None or self.win is None:
+            return
+        raised = raised or self.cfg.get("layer") == "overlay"
+        if raised == self._raised:
+            return
+        self._raised = raised
+        ls.set_layer(self.win, ls.Layer.OVERLAY if raised else ls.Layer.TOP)
 
     def _pick_monitor(self):
         want = self.cfg.get("monitor", "")

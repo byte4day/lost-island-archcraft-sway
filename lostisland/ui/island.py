@@ -14,7 +14,7 @@ from gi.repository import Gio, GLib, Gtk
 from lostisland.services import notify as notify_actions
 from lostisland.services.transfers import human_size
 from lostisland.ui import art as art_cache
-from lostisland.ui.activity import Satellite, rank
+from lostisland.ui.activity import Satellite, place, rank
 from lostisland.ui.expanded import Expanded
 from lostisland.ui.morph import MorphBin
 from lostisland.ui.peek import Banner, Peek
@@ -77,6 +77,7 @@ class Island(Gtk.Box):
                 lambda: self.expanded.clip_button.set_active(False))
         self.expanded.set_size_request(400, -1)
 
+        self.pill.on_face_changed = self.refresh_activities
         self.stack.add_named(self.pill, "pill", smooth=True)
         self.stack.add_named(self.peek, "peek", smooth=True)
         self.stack.add_named(self.banner, "banner")
@@ -232,12 +233,9 @@ class Island(Gtk.Box):
     _tint = None
 
     def refresh_activities(self):
-        acts = self.activities()
-        primary = acts[0] if acts else None
-        # music as the main activity is the pill's own face
-        self.pill.show_activity(
-            primary if primary and primary["kind"] != "music" else None)
-        self._secondary = acts[1] if len(acts) > 1 else None
+        pill, bubble = place(self.activities(), self.pill.face)
+        self.pill.show_activity(pill)
+        self._secondary = bubble
         self._notify_shell()
 
     _secondary = None
@@ -246,6 +244,10 @@ class Island(Gtk.Box):
         if self.on_activities:
             self.on_activities(self._secondary if self.state == "pill"
                                else None)
+        if self.on_state:
+            self.on_state(self.state)
+
+    on_state = None   # set by the app: raises the island over fullscreen
 
     def on_activity_clicked(self, activity: dict):
         kind = activity["kind"]
