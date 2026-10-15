@@ -7,6 +7,11 @@ import os
 import signal
 import sys
 
+# The island is a few small surfaces. GTK's software renderer draws them
+# just as smoothly and skips loading the GPU driver, which saves ~90 MB.
+# Set GSK_RENDERER yourself to override.
+os.environ.setdefault("GSK_RENDERER", "cairo")
+
 # gtk4-layer-shell must be resolved before libwayland-client, which GTK pulls
 # in on display init — preload it globally or the surface won't anchor.
 try:
@@ -182,11 +187,13 @@ class LostIsland(Adw.Application):
         # the panel instead of being pushed below it. Otherwise reserve a
         # strip as tall as the pill so windows start below it instead of
         # hiding their title bars under the island.
-        margin = 0 if notch else int(self.cfg.get("margin_top", 0))
         if self.cfg.get("overlap_panel", True):
             zone = -1
         elif self.cfg.get("reserve_space", True):
-            zone = margin + PILL_HEIGHT + 4
+            # exactly down to the pill's bottom edge. The compositor adds the
+            # top margin itself, and Sway's own window gap follows, so the
+            # space under the pill matches the gaps between windows.
+            zone = PILL_HEIGHT
         else:
             zone = 0
         ls.set_exclusive_zone(win, zone)

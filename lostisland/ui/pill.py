@@ -26,6 +26,7 @@ import time
 from gi.repository import GLib, Gtk, Pango
 
 from lostisland import config
+from lostisland.ui import art as art_cache
 from lostisland.ui.activity import ActivityView
 from lostisland.ui.draw import EqBars, pick_icon
 
@@ -58,6 +59,9 @@ class Pill(Gtk.Box):
         self.lyrics = lyrics
         self.claude = claude
         self._activity: dict | None = None
+        if weather is not None:
+            weather.connect("changed", lambda *_: self.face == "weather"
+                            and self.render())
         self._minute_timer = 0
         self._lyric_timer = 0
         self._music = None  # (title, art_path, playing) while music is active
@@ -130,7 +134,8 @@ class Pill(Gtk.Box):
             self.claude.connect("changed", lambda *_: self._claude_tick())
 
         for widget in (self.art, self.title, self.eq, self.lyric,
-                       self.face_icon, self.face_label, self.arch_icon, self.clock,
+                       self.arch_icon, self.clock, self.face_icon,
+                       self.face_label,
                        self.claude_icon, self.claude_label,
                        self.activity_view, self.batt_icon, self.batt_label):
             self.append(widget)
@@ -206,17 +211,17 @@ class Pill(Gtk.Box):
         elif face == "battery" and self._batt[0] >= 0:
             self._render_battery(force=True)
         elif face == "weather" and self.weather is not None:
+            # clock leading, weather trailing, like the iPhone status bar
             self.weather.request()
+            self._show_clock(dot=False)
             if self.weather.temp:
-                self.face_icon.set_from_icon_name(pick_icon(
-                    self, self.weather.icon.replace("-symbolic", ""),
-                    self.weather.icon, "weather-few-clouds"))
+                self.face_icon.set_from_icon_name(self.weather.icon)
+                self.face_icon.set_margin_start(22)
                 self.face_label.set_label(self.weather.temp)
                 self.face_icon.set_visible(True)
                 self.face_label.set_visible(True)
-            else:
-                self._show_clock(dot=True)
         elif face == "bluetooth" and self._bt[1]:
+            self.face_icon.set_margin_start(0)
             dev, _up, batt = self._bt
             self.face_icon.set_from_icon_name(pick_icon(
                 self, "bluetooth-symbolic", "network-bluetooth-symbolic",
@@ -242,8 +247,9 @@ class Pill(Gtk.Box):
 
     def _show_music_row(self, title: bool):
         music = self._music
-        if music and music[1]:
-            self.art.set_from_file(music[1])
+        texture = art_cache.thumb(music[1], 40) if music else None
+        if texture is not None:
+            self.art.set_from_paintable(texture)
             self.art.set_visible(True)
         if title:
             self.title.set_label(music[0] or "…")

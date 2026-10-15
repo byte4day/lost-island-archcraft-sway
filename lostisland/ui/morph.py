@@ -18,6 +18,7 @@ from gi.repository import Adw, GLib, Graphene, Gsk, Gtk
 OPEN = (0.72, 1.0, 210.0)     # damping ratio, mass, stiffness
 CLOSE = (0.88, 1.0, 320.0)
 SETTLE = (0.82, 1.0, 380.0)
+BLUR_MAX_AREA = 60_000   # px; roughly a peek or banner, never the card
 
 
 def _point(x: float, y: float) -> Graphene.Point:
@@ -181,6 +182,10 @@ class MorphBin(Gtk.Widget):
         for child, alpha, scale, blur in layers:
             if child is None or alpha <= 0.01:
                 continue
+            # blur is cheap on a pill but costly on the whole card with the
+            # software renderer; the card fades and scales without it
+            if child.get_width() * child.get_height() > BLUR_MAX_AREA:
+                blur = 0.0
             snapshot.push_opacity(alpha)
             if blur > 0.3:
                 snapshot.push_blur(blur)

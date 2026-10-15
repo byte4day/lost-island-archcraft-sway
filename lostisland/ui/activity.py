@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import os
 
-from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango
+from gi.repository import Gtk, Pango
+
+from lostisland.ui import art as art_cache
 
 from lostisland.ui.draw import EqBars, ProgressRing, SparkIcon, hex_rgb
 
@@ -125,14 +127,10 @@ class ActivityView(Gtk.Box):
         self._tone(None)
         if kind == "music":
             shown = []
-            if a.get("art_path"):
-                try:
-                    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                        a["art_path"], 60, 60, False)
-                    self.art.set_paintable(Gdk.Texture.new_for_pixbuf(pixbuf))
-                    shown.append(self.art_frame)
-                except GLib.Error:
-                    pass
+            texture = art_cache.thumb(a.get("art_path", ""), 40)
+            if texture is not None:
+                self.art.set_paintable(texture)
+                shown.append(self.art_frame)
             if a.get("tint"):
                 self.eq.color = a["tint"]
             shown.append(self.eq)

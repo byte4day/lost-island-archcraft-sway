@@ -13,8 +13,9 @@ from gi.repository import Gio, GLib, Gtk
 
 from lostisland.services import notify as notify_actions
 from lostisland.services.transfers import human_size
+from lostisland.ui import art as art_cache
 from lostisland.ui.activity import Satellite, rank
-from lostisland.ui.expanded import Expanded, art_tint
+from lostisland.ui.expanded import Expanded
 from lostisland.ui.morph import MorphBin
 from lostisland.ui.peek import Banner, Peek
 from lostisland.ui.pill import Pill
@@ -390,7 +391,7 @@ class Island(Gtk.Box):
             self._tint = None
             self.pill.show_idle()
         else:
-            self._tint = _art_rgb(p.art_path)
+            self._tint = art_cache.tint(p.art_path)
             # the pill shows the title only; the artist lives in the card
             self.pill.show_music(p.title, p.art_path, p.status == "Playing",
                                  tint=self._tint)
@@ -444,20 +445,6 @@ class IslandShell(Gtk.Box):
                 self.satellite.add_css_class("satellite--pop")
         self.left.set_reveal_child(activity is not None)
         self.right.set_reveal_child(activity is not None)
-
-
-def _art_rgb(path: str):
-    """Bright album color for the EQ bars, or None."""
-    if not path:
-        return None
-    try:
-        from gi.repository import GdkPixbuf
-        pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 24, 24, False)
-    except GLib.Error:
-        return None
-    from lostisland.ui.expanded import _shade
-    r, g, b = _shade(art_tint(pixbuf), value=0.98, min_sat=0.35)
-    return (r / 255, g / 255, b / 255)
 
 
 def _play_chime():
