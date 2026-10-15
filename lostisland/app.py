@@ -26,6 +26,9 @@ from lostisland.services.audio import AudioService  # noqa: E402
 from lostisland.services.airplay import AirPlayReceiver  # noqa: E402
 from lostisland.services.bluetooth import BluetoothService  # noqa: E402
 from lostisland.services.cava import CavaService  # noqa: E402
+from lostisland.services.focus_timer import FocusTimer  # noqa: E402
+from lostisland.services.indicators import IndicatorService  # noqa: E402
+from lostisland.services.claude_status import ClaudeStatusService  # noqa: E402
 from lostisland.services.claude_usage import ClaudeUsageService  # noqa: E402
 from lostisland.services.clipboard import ClipboardService  # noqa: E402
 from lostisland.services.lyrics import LyricsService  # noqa: E402
@@ -35,8 +38,11 @@ from lostisland.services.notify import NotifyService  # noqa: E402
 from lostisland.services.power import PowerService  # noqa: E402
 from lostisland.services.recorder import ScreenRecorder  # noqa: E402
 from lostisland.services.system import SystemService  # noqa: E402
+from lostisland.services.transfers import TransferService  # noqa: E402
 from lostisland.services.weather import WeatherService  # noqa: E402
-from lostisland.ui.island import Island  # noqa: E402
+from lostisland.ui.island import Island, IslandShell  # noqa: E402
+
+PILL_HEIGHT = 37  # px, Apple's 36.67 pt island height, border included
 
 CSS_PATH = os.path.join(os.path.dirname(__file__), "ui", "style.css")
 
@@ -44,7 +50,8 @@ CSS_PATH = os.path.join(os.path.dirname(__file__), "ui", "style.css")
 class LostIsland(Adw.Application):
     def __init__(self):
         super().__init__(
-            application_id=APP_ID,
+            # a second, separate instance for development and screenshots
+            application_id=os.environ.get("LOST_ISLAND_APP_ID", APP_ID),
             flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE,
         )
         self.win: Gtk.Window | None = None
@@ -68,6 +75,11 @@ class LostIsland(Adw.Application):
              "Install the Claude Code hook that feeds the claude face"),
             ("remove-claude-usage", "\0",
              "Remove the Claude Code usage hook"),
+            ("setup-claude-status", "\0",
+             "Install the Claude Code hooks that show live status"),
+            ("remove-claude-status", "\0",
+             "Remove the Claude Code status hooks"),
+            ("timer", "\0", "Start or pause the focus timer"),
         ):
             self.add_main_option(opt, ord(short) if short != "\0" else 0,
                                  GLib.OptionFlags.NONE,
@@ -86,6 +98,14 @@ class LostIsland(Adw.Application):
             from lostisland import claude_setup
             cmdline.print_literal(claude_setup.uninstall() + "\n")
             return 0
+        if opts.contains("setup-claude-status"):
+            from lostisland import claude_setup
+            cmdline.print_literal(claude_setup.install_status() + "\n")
+            return 0
+        if opts.contains("remove-claude-status"):
+            from lostisland import claude_setup
+            cmdline.print_literal(claude_setup.uninstall_status() + "\n")
+            return 0
         if opts.contains("quit"):
             self._request_quit()
             return 0
@@ -94,6 +114,8 @@ class LostIsland(Adw.Application):
             self.island.toggle()
         if opts.contains("settings"):
             self.open_settings()
+        if opts.contains("timer") and self.timer is not None:
+            self.timer.toggle()
         return 0
 
     def do_activate(self):
@@ -102,6 +124,8 @@ class LostIsland(Adw.Application):
         self.hold()  # stay alive across island rebuilds
         self.cfg = config.load()
         config.write_default()
+        self.timer = FocusTimer(self.cfg.get("timer_minutes", 25))
+        self._add_progress_action()
         self._load_css()
         self._build_services()
         self._build_window()
@@ -135,10 +159,14 @@ class LostIsland(Adw.Application):
                              on_settings=self.open_settings, cava=self.cava,
                              lyrics=self.lyrics, claude=self.claude,
                              recorder=self.recorder, airplay=self.airplay,
-                             clipboard=self.clipboard)
+                             clipboard=self.clipboard, timer=self.timer,
+                             claude_status=self.claude_status,
+                             transfers=self.transfers)
         self._wire_services()
-        self.win.set_child(self.island)
+        self.island.set_shape(self.cfg.get("shape", "island"))
+        self.win.set_child(IslandShell(self.island))
         self.win.present()
+        self.island.on_media_changed()
 
     def _apply_layer(self):
         ls, win = self._layer_shell, self.win
@@ -146,11 +174,22 @@ class LostIsland(Adw.Application):
                  else ls.Layer.TOP)
         ls.set_layer(win, layer)
         ls.set_anchor(win, ls.Edge.TOP, True)
-        ls.set_margin(win, ls.Edge.TOP, int(self.cfg.get("margin_top", 0)))
+        notch = self.cfg.get("shape", "island") == "notch"
+        # notch style hangs from the screen edge, like a MacBook notch
+        ls.set_margin(win, ls.Edge.TOP,
+                      0 if notch else int(self.cfg.get("margin_top", 0)))
         # -1 ignores other surfaces' exclusive zones, so the island sits on
-        # the panel instead of being pushed below it
-        ls.set_exclusive_zone(
-            win, -1 if self.cfg.get("overlap_panel", True) else 0)
+        # the panel instead of being pushed below it. Otherwise reserve a
+        # strip as tall as the pill so windows start below it instead of
+        # hiding their title bars under the island.
+        margin = 0 if notch else int(self.cfg.get("margin_top", 0))
+        if self.cfg.get("overlap_panel", True):
+            zone = -1
+        elif self.cfg.get("reserve_space", True):
+            zone = margin + PILL_HEIGHT + 4
+        else:
+            zone = 0
+        ls.set_exclusive_zone(win, zone)
         self._pick_monitor()
 
     def _pick_monitor(self):
@@ -206,6 +245,7 @@ class LostIsland(Adw.Application):
         if self._layer_shell and self.win:
             self._apply_layer()
         if self.island:
+            self.island.set_shape(self.cfg.get("shape", "island"))
             self.island.on_media_changed()
             self.island.expanded.refresh_battery()
             self.island.pill.show_battery(
@@ -214,6 +254,8 @@ class LostIsland(Adw.Application):
     def rebuild(self):
         if self.cava:
             self.cava.stop()
+        if getattr(self, "indicators", None) is not None:
+            self.indicators.stop()
         if self.win:
             self.win.destroy()
         self.win = self.island = None
@@ -275,6 +317,33 @@ class LostIsland(Adw.Application):
             self.clipboard.stop()
         self.clipboard = (ClipboardService()
                           if mods.get("clipboard", True) else None)
+        if getattr(self, "claude_status", None) is None:
+            self.claude_status = (ClaudeStatusService()
+                                  if mods.get("claude_status", True) else None)
+        elif not mods.get("claude_status", True):
+            self.claude_status = None
+        self.transfers = (TransferService()
+                          if mods.get("transfers", True) else None)
+        self.indicators = (IndicatorService()
+                           if mods.get("indicators", True) else None)
+
+    def _add_progress_action(self):
+        """`progress` app action for scripts: ("label", percent); a negative
+        percent ends the job. See bin/island-progress."""
+        action = Gio.SimpleAction.new("progress", GLib.VariantType("(sd)"))
+
+        def activate(_action, param):
+            label, percent = param.unpack()
+            if self.transfers is not None:
+                self.transfers.report(label or "Working", percent)
+        action.connect("activate", activate)
+        self.add_action(action)
+
+        # open the card straight into edit mode (also handy for a keybinding)
+        edit = Gio.SimpleAction.new("edit-controls", None)
+        edit.connect("activate", lambda *_: self.island and (
+            self.island.expand(), self.island.expanded.set_editing(True)))
+        self.add_action(edit)
 
     def _wire_services(self):
         isl = self.island
@@ -296,10 +365,14 @@ class LostIsland(Adw.Application):
                                   isl.expanded.refresh_volume(p, m)))
         if self.notifier:
             self.notifier.connect(
-                "notified",
-                lambda _s, app, summary, body, icon: None if isl.dnd_active
-                else isl.show_peek(
-                    isl.peek.show_notification, app, summary, body, icon))
+                "notified", lambda _s, note: isl.show_banner(note))
+        if self.indicators:
+            self.indicators.connect(
+                "caps-lock", lambda _s, on: isl.show_peek(
+                    isl.peek.show_caps_lock, on))
+            self.indicators.connect(
+                "brightness", lambda _s, pct: isl.show_peek(
+                    isl.peek.show_brightness, pct))
         if self.network:
             self.network.connect(
                 "changed",

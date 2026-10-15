@@ -22,14 +22,22 @@ PLAYER_IFACE = "org.mpris.MediaPlayer2.Player"
 OBJECT_PATH = "/org/mpris/MediaPlayer2"
 
 
+def player_app(bus_name: str) -> str:
+    """'org.mpris.MediaPlayer2.firefox.instance_1_42' -> 'firefox'."""
+    rest = bus_name[len(MPRIS_PREFIX):] if bus_name.startswith(MPRIS_PREFIX) \
+        else bus_name
+    return rest.split(".")[0].lower()
+
+
 class Player:
-    __slots__ = (
+    __slots__ = ("app", 
         "bus_name", "status", "title", "artist", "album", "art_url",
         "art_path", "length_us", "track_id", "can_next", "can_prev", "stamp",
     )
 
     def __init__(self, bus_name: str):
         self.bus_name = bus_name
+        self.app = player_app(bus_name)
         self.status = "Stopped"
         self.title = ""
         self.artist = ""

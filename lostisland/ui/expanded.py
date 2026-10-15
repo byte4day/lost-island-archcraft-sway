@@ -11,27 +11,31 @@ import re
 import time
 import weakref
 
-from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, GObject, Gtk, Pango
 
 from lostisland import config
+from lostisland.ui import layout
 from lostisland.services import tools
 from lostisland.services.clipboard import preview as clipboard_preview
 from lostisland.services.controls import SystemControls
 from lostisland.services.recorder import system_audio_source
 from lostisland.ui.draw import pick_icon
-from lostisland.ui.launchers import LauncherRow
+from lostisland.ui.launchers import LauncherRow, logo
 from lostisland.ui.tools import circle_button
 
-ART_PX = 64
+ART_PX = 60
 _DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
          "Saturday", "Sunday")
 _MONTHS = ("January", "February", "March", "April", "May", "June", "July",
            "August", "September", "October", "November", "December")
-TIMER_MIN_MINUTES, TIMER_MAX_MINUTES, TIMER_STEP = 5, 90, 5
+TIMER_STEP = 5
+# players whose logo ships with the island; others use the icon theme
+APP_LOGOS = {"spotify": "spotify.svg"}
+HIGH_CPU, HIGH_RAM = 80, 85
 
 
 class Expanded(Gtk.Box):
-    def __init__(self, cfg: dict, media, power, on_timer_change=None,
+    def __init__(self, cfg: dict, media, power, timer=None,
                  weather=None, system=None, on_settings=None, recorder=None,
                  airplay=None, tools_row=None, clipboard=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=11)
@@ -41,7 +45,7 @@ class Expanded(Gtk.Box):
         self.power = power
         self.weather = weather
         self.system = system
-        self.on_timer_change = on_timer_change
+        self.timer = timer
         self.on_settings = on_settings
         self.recorder = recorder
         self.airplay = airplay
@@ -56,6 +60,8 @@ class Expanded(Gtk.Box):
         self.control_handlers: dict[str, int] = {}
         self.control_labels: dict[str, Gtk.Label] = {}
         self.on_clip_copied = None
+        self.on_edit_changed = None
+        self.editing = False
 
         self.tools = tools_row
         self.clipboard = clipboard
@@ -64,9 +70,15 @@ class Expanded(Gtk.Box):
         self._build_player()
         self._build_controls(cfg.get("modules", {}).get("toggles", True))
         self._build_volume()
-        self.append(LauncherRow())
+        self.launchers = LauncherRow(self._launcher_keys(),
+                                     on_remove=self._remove_launcher)
+        self.append(self.launchers)
+        self._build_tray()
         self._build_tiles()
         self._build_footer()
+        if self.timer is not None:
+            self.timer.connect("changed", lambda *_: self._sync_timer_ui())
+            self._sync_timer_ui()
 
         if self.recorder is not None:
             self_ref = weakref.ref(self)
@@ -184,7 +196,7 @@ class Expanded(Gtk.Box):
         running = self.airplay.running
         self.airplay_button.set_sensitive(not self.airplay.stopping)
         self.airplay_button.set_tooltip_text(
-            f"Connect to Lost Island from AirPlay; click to stop"
+            "Connect to Lost Island from AirPlay; click to stop"
             if running else "Start UxPlay AirPlay receiver")
         self.airplay_text.set_label("AirPlay on" if running else "AirPlay")
         if running:
@@ -274,13 +286,34 @@ class Expanded(Gtk.Box):
         self.player_box.add_css_class("player")
 
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        art_frame = Gtk.Box()
+        art_frame = self.art_frame = Gtk.Box()
         art_frame.add_css_class("art-frame")
         art_frame.set_overflow(Gtk.Overflow.HIDDEN)
         self.art = Gtk.Picture()
         self.art.set_size_request(ART_PX, ART_PX)
         self.art.set_content_fit(Gtk.ContentFit.COVER)
         art_frame.append(self.art)
+        # no cover: the player's own logo on a soft tile
+        self.art_empty = Gtk.Box()
+        self.art_empty.set_size_request(ART_PX, ART_PX)
+        self.art_empty.add_css_class("art-empty")
+        self.art_empty_logo = Gtk.Box(halign=Gtk.Align.CENTER,
+                                      valign=Gtk.Align.CENTER)
+        self.art_empty_logo.set_size_request(ART_PX, ART_PX)
+        self.art_empty.append(self.art_empty_logo)
+        art_frame.append(self.art_empty)
+        # the playing app's badge on the cover corner, like macOS Now Playing
+        art_frame.set_hexpand(False)
+        art_frame.set_halign(Gtk.Align.START)
+        art_overlay = Gtk.Overlay()
+        art_overlay.set_hexpand(False)
+        art_overlay.set_child(art_frame)
+        art_overlay.set_valign(Gtk.Align.CENTER)
+        self.app_badge = Gtk.Box(halign=Gtk.Align.END, valign=Gtk.Align.END)
+        self.app_badge.add_css_class("app-badge")
+        self.app_badge.set_can_target(False)
+        art_overlay.add_overlay(self.app_badge)
+        self._badge_app = None
 
         meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         meta.set_valign(Gtk.Align.CENTER)
@@ -291,7 +324,7 @@ class Expanded(Gtk.Box):
         for w in (self.title, self.artist, self.album):
             meta.append(w)
 
-        head.append(art_frame)
+        head.append(art_overlay)
         head.append(meta)
 
         seek_box = self.seek_box = Gtk.Box(
@@ -313,7 +346,7 @@ class Expanded(Gtk.Box):
         drag.connect("released", self._on_seek_released)
         self.seek.add_controller(drag)
 
-        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=28)
+        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=34)
         controls.set_halign(Gtk.Align.CENTER)
         self.btn_prev = _media_btn("media-skip-backward-symbolic")
         self.btn_play = _media_btn("media-playback-start-symbolic", main=True)
@@ -343,18 +376,21 @@ class Expanded(Gtk.Box):
     # -- quick toggles ------------------------------------------------------
 
     def _build_controls(self, with_toggles: bool):
-        """One grid of identical circles: connectivity first, then tools."""
-        cells: list[tuple[Gtk.Button, Gtk.Label | str]] = []
+        """The control platter: round buttons in the user's order. Edit mode
+        (pencil in the footer, or a long press) lets you drag them, remove
+        them, and add hidden ones back, like Control Center on a Mac."""
+        widgets: dict[str, tuple[Gtk.Button, Gtk.Label | str]] = {}
         if with_toggles:
             specs = (
-                ("wifi", "wifi", "Wi-Fi", "nm-connection-editor"),
-                ("bluetooth", "bluetooth", "Bluetooth", "blueman-manager"),
-                ("sound", "volume_up", "Sound", "pavucontrol"),
-                ("mic", "mic", "Mic", "pavucontrol"),
+                ("wifi", "nm-connection-editor"),
+                ("bluetooth", "blueman-manager"),
+                ("sound", "pavucontrol"),
+                ("mic", "pavucontrol"),
             )
-            for name, icon, label, settings_app in specs:
+            for name, settings_app in specs:
+                icon, label = layout.CONTROLS[name]
                 button = circle_button(
-                    icon, f"Toggle {label}; right click for settings",
+                    icon, f"Turn {label} on or off; right-click for settings",
                     toggle=True)
                 self.control_buttons[name] = button
                 self.control_handlers[name] = button.connect(
@@ -365,29 +401,59 @@ class Expanded(Gtk.Box):
                 button.add_controller(right)
                 caption = Gtk.Label(label=label)
                 self.control_labels[name] = caption
-                cells.append((button, caption))
+                widgets[name] = (button, caption)
         if self.tools is not None:
-            cells += [(self.tools.dnd, "Focus"), (self.tools.power, "Power"),
-                      (self.tools.shot, "Screen"), (self.tools.region, "Area"),
-                      (self.tools.picker, "Color")]
+            widgets.update({
+                "focus": (self.tools.dnd, "Focus"),
+                "power": (self.tools.power, "Power"),
+                "screen": (self.tools.shot, "Screen"),
+                "area": (self.tools.region, "Area"),
+                "color": (self.tools.picker, "Color"),
+            })
+            lock = circle_button("lock", "Lock the screen")
+            lock.connect("clicked", lambda *_: self.tools.lock())
+            widgets["lock"] = (lock, "Lock")
         if self.recorder is not None:
-            cells.append((self.record_button, self.record_text))
+            widgets["record"] = (self.record_button, self.record_text)
         if self.airplay is not None:
-            cells.append((self.airplay_button, self.airplay_text))
+            widgets["airplay"] = (self.airplay_button, self.airplay_text)
         if self.clipboard is not None and self.clipboard.available:
-            cells.append((self.clip_button, "Clipboard"))
+            widgets["clipboard"] = (self.clip_button, "Clipboard")
+        if self.timer is not None:
+            timer_btn = circle_button("timer", "Start or pause the focus timer",
+                                      toggle=True)
+            self._timer_btn_handler = timer_btn.connect(
+                "toggled", lambda *_: self.timer.toggle())
+            self.timer_caption = Gtk.Label(label="Timer")
+            widgets["timer"] = (timer_btn, self.timer_caption)
+            self.timer_button = timer_btn
+        settings = circle_button("settings", "Island settings")
+        settings.connect("clicked",
+                         lambda *_: self.on_settings and self.on_settings())
+        widgets["settings"] = (settings, "Settings")
 
-        grid = Gtk.Grid(column_spacing=4, row_spacing=10)
-        grid.set_column_homogeneous(True)
-        grid.add_css_class("controls")
-        columns = 6 if len(cells) > 8 else 4
-        for index, (button, caption) in enumerate(cells):
-            grid.attach(_cell(button, caption), index % columns,
-                        index // columns, 1, 1)
+        self.available_controls = [k for k in layout.CONTROLS if k in widgets]
+        self.cells: dict[str, Gtk.Overlay] = {}
+        for key, (button, caption) in widgets.items():
+            self.cells[key] = self._edit_cell(key, button, caption)
+
+        self.grid = Gtk.Grid(column_spacing=4, row_spacing=12)
+        self.grid.set_column_homogeneous(True)
+        self.grid.add_css_class("controls")
+        # dropping on empty grid space moves a control to the end
+        end_drop = Gtk.DropTarget.new(GObject.TYPE_STRING, Gdk.DragAction.MOVE)
+        end_drop.connect("drop", lambda _t, value, _x, _y:
+                         self._move_control(value, None))
+        self.grid.add_controller(end_drop)
+
+        platter = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        platter.add_css_class("platter")
+        platter.add_css_class("controls-platter")
+        platter.append(self.grid)
         # grid + its slide-out panels share one zero-spacing column, so
         # closed panels do not leave gaps; panels carry their own margin
         section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        section.append(grid)
+        section.append(platter)
         self._section = section
         self._build_clipboard()
         if self.tools is not None:
@@ -396,6 +462,202 @@ class Expanded(Gtk.Box):
         self._status_box.add_css_class("status-box")
         section.append(self._status_box)
         self.append(section)
+        self._render_grid()
+
+    def _control_keys(self) -> list[str]:
+        saved = self.cfg.get("controls", layout.DEFAULT_CONTROLS)
+        return layout.normalize(saved, self.available_controls)
+
+    def _launcher_keys(self) -> list[str]:
+        saved = self.cfg.get("launchers", layout.DEFAULT_LAUNCHERS)
+        return layout.normalize(saved, list(layout.LAUNCHERS))
+
+    def _edit_cell(self, key: str, button: Gtk.Button,
+                   caption: Gtk.Label | str) -> Gtk.Overlay:
+        cell = Gtk.Overlay()
+        cell.set_child(_cell(button, caption))
+        cell.set_halign(Gtk.Align.CENTER)
+        # in edit mode a shield takes the pointer, so a press drags the
+        # control instead of switching it
+        shield = Gtk.Box()
+        shield.add_css_class("edit-shield")
+        shield.set_visible(False)
+        source = Gtk.DragSource(actions=Gdk.DragAction.MOVE)
+        source.connect("prepare", lambda *_a, k=key:
+                       Gdk.ContentProvider.new_for_value(k))
+        source.connect("drag-begin", self._on_drag_begin, cell)
+        source.connect("drag-end", lambda *_a, c=cell:
+                       c.remove_css_class("dragging"))
+        shield.add_controller(source)
+        drop = Gtk.DropTarget.new(GObject.TYPE_STRING, Gdk.DragAction.MOVE)
+        drop.connect("enter", lambda *_a, c=cell: (
+            c.add_css_class("drop-hover"), Gdk.DragAction.MOVE)[1])
+        drop.connect("leave", lambda *_a, c=cell:
+                     c.remove_css_class("drop-hover"))
+        drop.connect("drop", lambda _t, value, _x, _y, k=key, c=cell: (
+            c.remove_css_class("drop-hover"),
+            self._move_control(value, k))[1])
+        shield.add_controller(drop)
+        cell.add_overlay(shield)
+
+        badge = Gtk.Button(label="−")
+        badge.add_css_class("edit-badge")
+        badge.set_halign(Gtk.Align.START)
+        badge.set_valign(Gtk.Align.START)
+        badge.set_visible(False)
+        badge.set_tooltip_text("Remove from the island")
+        badge.connect("clicked", lambda *_a, k=key: self._remove_control(k))
+        cell.add_overlay(badge)
+        cell.shield, cell.badge = shield, badge
+
+        hold = Gtk.GestureLongPress()
+        hold.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        hold.connect("pressed", lambda g, *_a: (
+            g.set_state(Gtk.EventSequenceState.CLAIMED),
+            self.set_editing(True)) if not self.editing else None)
+        cell.add_controller(hold)
+        return cell
+
+    def _on_drag_begin(self, source, drag, cell):
+        cell.add_css_class("dragging")
+        paintable = Gtk.WidgetPaintable.new(cell)
+        source.set_icon(paintable, cell.get_width() // 2,
+                        cell.get_height() // 2)
+
+    def _render_grid(self):
+        while (child := self.grid.get_first_child()) is not None:
+            self.grid.remove(child)
+        for index, key in enumerate(self._control_keys()):
+            self.grid.attach(self.cells[key], index % layout.COLUMNS,
+                             index // layout.COLUMNS, 1, 1)
+        self._sync_edit_marks()
+
+    def _sync_edit_marks(self):
+        for index, key in enumerate(self._control_keys()):
+            cell = self.cells[key]
+            cell.shield.set_visible(self.editing)
+            cell.badge.set_visible(self.editing)
+            for cls in ("jiggle-a", "jiggle-b"):
+                cell.remove_css_class(cls)
+            if self.editing:
+                cell.add_css_class("jiggle-a" if index % 2 else "jiggle-b")
+        self.launchers.set_editing(self.editing) if hasattr(
+            self, "launchers") else None
+
+    def _save_layout(self, controls=None, launchers=None):
+        if controls is not None:
+            self.cfg["controls"] = controls
+        if launchers is not None:
+            self.cfg["launchers"] = launchers
+        config.save(self.cfg)
+        self._render_grid()
+        self.launchers.set_keys(self._launcher_keys())
+        self._render_tray()
+
+    def _move_control(self, key, before) -> bool:
+        if not isinstance(key, str) or key not in self.cells:
+            return False
+        self._save_layout(controls=layout.move(self._control_keys(), key,
+                                               before))
+        return True
+
+    def _remove_control(self, key: str):
+        self._save_layout(controls=layout.remove(self._control_keys(), key))
+
+    def _add_control(self, key: str):
+        self._save_layout(controls=layout.add(self._control_keys(), key))
+
+    def _remove_launcher(self, key: str):
+        self._save_layout(launchers=layout.remove(self._launcher_keys(), key))
+
+    def _add_launcher(self, key: str):
+        self._save_layout(launchers=layout.add(self._launcher_keys(), key))
+
+    def set_editing(self, editing: bool):
+        if editing == self.editing:
+            return
+        self.editing = editing
+        if editing:
+            self.clip_button.set_active(False)
+            if self.tools is not None:
+                self.tools.close_power()
+        self._sync_edit_marks()
+        self._render_tray()
+        self.tray_revealer.set_reveal_child(editing)
+        self.edit_button.get_child().set_label("check" if editing else "edit")
+        self.edit_button.set_tooltip_text(
+            "Done editing" if editing else "Edit controls")
+        if self.on_edit_changed:
+            self.on_edit_changed(editing)
+
+    # -- edit tray: hidden controls you can add back ---------------------------
+
+    def _build_tray(self):
+        self.tray_revealer = Gtk.Revealer()
+        self.tray_revealer.set_transition_type(
+            Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.tray_revealer.set_transition_duration(220)
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        panel.add_css_class("platter")
+        panel.add_css_class("tray")
+        hint = Gtk.Label(
+            label="Drag to reorder. Tap − to remove, + to add.", xalign=0)
+        hint.add_css_class("tray-hint")
+        panel.append(hint)
+        self.tray_grid = Gtk.Grid(column_spacing=4, row_spacing=10)
+        self.tray_grid.set_column_homogeneous(True)
+        panel.append(self.tray_grid)
+        self.tray_apps = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                                 spacing=8)
+        panel.append(self.tray_apps)
+        self.tray_empty = Gtk.Label(label="Everything is already on the island",
+                                    xalign=0)
+        self.tray_empty.add_css_class("tray-hint")
+        panel.append(self.tray_empty)
+        self.tray_revealer.set_child(panel)
+        self.append(self.tray_revealer)
+
+    def _render_tray(self):
+        for box in (self.tray_grid, self.tray_apps):
+            while (child := box.get_first_child()) is not None:
+                box.remove(child)
+        hidden = layout.hidden(self._control_keys(), self.available_controls)
+        for index, key in enumerate(hidden):
+            icon, label = layout.CONTROLS[key]
+            button = circle_button(icon, f"Add {label}")
+            button.add_css_class("circle--ghost")
+            button.connect("clicked", lambda *_a, k=key: self._add_control(k))
+            cell = Gtk.Overlay()
+            cell.set_child(_cell(button, label))
+            cell.set_halign(Gtk.Align.CENTER)
+            plus = Gtk.Label(label="+")
+            plus.add_css_class("add-badge")
+            plus.set_halign(Gtk.Align.START)
+            plus.set_valign(Gtk.Align.START)
+            plus.set_can_target(False)
+            cell.add_overlay(plus)
+            self.tray_grid.attach(cell, index % layout.COLUMNS,
+                                  index // layout.COLUMNS, 1, 1)
+        # pad the row so the tray lines up with the grid's six columns
+        for index in range(len(hidden), layout.COLUMNS):
+            self.tray_grid.attach(Gtk.Box(), index, 0, 1, 1)
+        hidden_apps = layout.hidden(self._launcher_keys(), list(layout.LAUNCHERS))
+        for key in hidden_apps:
+            name, artwork, _cmd = layout.LAUNCHERS[key]
+            button = Gtk.Button()
+            button.add_css_class("launcher-btn")
+            button.add_css_class("launcher-btn--ghost")
+            content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            content.append(Gtk.Label(label="+"))
+            content.append(logo(artwork, 16))
+            content.append(Gtk.Label(label=name))
+            button.set_child(content)
+            button.set_tooltip_text(f"Add {name}")
+            button.connect("clicked", lambda *_a, k=key: self._add_launcher(k))
+            self.tray_apps.append(button)
+        self.tray_grid.set_visible(bool(hidden))
+        self.tray_apps.set_visible(bool(hidden_apps))
+        self.tray_empty.set_visible(not hidden and not hidden_apps)
 
     def _on_control_toggle(self, button: Gtk.ToggleButton, name: str):
         self._control_busy.add(name)
@@ -531,7 +793,8 @@ class Expanded(Gtk.Box):
         self.append(row)
 
     def _build_tiles(self):
-        """One quiet line: focus timer, weather, battery."""
+        """One quiet line: focus timer, weather, battery, then edit, power
+        and settings."""
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         row.add_css_class("info-line")
 
@@ -542,7 +805,7 @@ class Expanded(Gtk.Box):
         self.timer_label = Gtk.Label(label="25:00")
         self.timer_label.add_css_class("info-value")
         self.timer_tile.set_tooltip_text(
-            "Focus timer; scroll to change length")
+            "Focus timer; scroll to change the length")
         timer_scroll = Gtk.EventControllerScroll.new(
             Gtk.EventControllerScrollFlags.VERTICAL
             | Gtk.EventControllerScrollFlags.DISCRETE)
@@ -552,15 +815,16 @@ class Expanded(Gtk.Box):
         self.timer_toggle.add_css_class("mini-btn")
         self.timer_toggle.set_icon_name("media-playback-start-symbolic")
         self.timer_toggle.set_tooltip_text("Start or pause the focus timer")
-        self.timer_toggle.connect("clicked", self._on_timer_toggle)
+        self.timer_toggle.connect("clicked", lambda *_: self.timer.toggle())
         timer_reset = Gtk.Button()
         timer_reset.add_css_class("mini-btn")
         timer_reset.set_icon_name("view-refresh-symbolic")
         timer_reset.set_tooltip_text("Reset the focus timer")
-        timer_reset.connect("clicked", self._on_timer_reset)
+        timer_reset.connect("clicked", lambda *_: self.timer.reset())
         self.timer_tile.append(self.timer_label)
         self.timer_tile.append(self.timer_toggle)
         self.timer_tile.append(timer_reset)
+        self.timer_tile.set_visible(self.timer is not None)
 
         self.weather_tile = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
                                     spacing=6)
@@ -573,8 +837,6 @@ class Expanded(Gtk.Box):
         self.weather_temp.add_css_class("info-value")
         self.weather_desc = Gtk.Label(label="")
         self.weather_desc.add_css_class("info-sub")
-        self.weather_desc.set_ellipsize(Pango.EllipsizeMode.END)
-        self.weather_desc.set_max_width_chars(12)
         self.weather_tile.append(self.weather_icon)
         self.weather_tile.append(self.weather_temp)
         self.weather_tile.append(self.weather_desc)
@@ -589,17 +851,34 @@ class Expanded(Gtk.Box):
         self.battery_tile.append(self.batt_icon)
         self.battery_tile.append(self.batt_value)
 
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        self.edit_button = Gtk.Button()
+        self.edit_button.add_css_class("mini-btn")
+        self.edit_button.set_child(_symbol("edit"))
+        self.edit_button.set_tooltip_text("Edit controls")
+        self.edit_button.connect(
+            "clicked", lambda *_: self.set_editing(not self.editing))
+        actions.append(self.edit_button)
+        if self.tools is not None:
+            power = Gtk.Button()
+            power.add_css_class("mini-btn")
+            power.set_child(_symbol("power_settings_new"))
+            power.set_tooltip_text("Lock, sleep, restart or shut down")
+            power.connect("clicked", lambda *_: self.tools.power.set_active(
+                not self.tools.power.get_active()))
+            actions.append(power)
         settings = Gtk.Button()
         settings.add_css_class("mini-btn")
         settings.set_child(_symbol("settings"))
         settings.set_tooltip_text("Island settings")
         settings.connect("clicked",
                          lambda *_: self.on_settings and self.on_settings())
+        actions.append(settings)
 
         row.append(self.timer_tile)
         row.append(self.weather_tile)
         row.append(self.battery_tile)
-        row.append(settings)
+        row.append(actions)
         self.append(row)
 
         if self.weather is None:
@@ -607,17 +886,11 @@ class Expanded(Gtk.Box):
         else:
             self.weather.connect("changed", self._on_weather)
 
-        # timer state
-        self.timer_minutes = _clamp_minutes(self.cfg.get("timer_minutes", 25))
-        self.timer_left = self.timer_minutes * 60
-        self.timer_running = False
-        self._timer_src = 0
-        self._sync_timer_ui()
-
     def _build_footer(self):
+        # CPU and RAM only speak up when something is wrong
         self.sys_label = Gtk.Label()
         self.sys_label.add_css_class("sys-stats")
-        self.sys_label.set_visible(self.system is not None)
+        self.sys_label.set_visible(False)
         if self.system is not None:
             self.system.connect("changed", self._on_system)
         self.append(self.sys_label)
@@ -649,6 +922,12 @@ class Expanded(Gtk.Box):
                 pixbuf = None
         self.art.set_paintable(
             Gdk.Texture.new_for_pixbuf(pixbuf) if pixbuf else None)
+        self.art.set_visible(pixbuf is not None)
+        self.art_empty.set_visible(pixbuf is None)
+        self._set_app_badge(getattr(p, "app", ""))
+        # with no cover the tile already shows the app's logo
+        self.app_badge.set_visible(pixbuf is not None
+                                   and self.app_badge.get_first_child() is not None)
         self._set_art_tint(art_tint(pixbuf) if pixbuf else None)
         playing = p.status == "Playing"
         self.btn_play.set_icon_name(
@@ -664,6 +943,40 @@ class Expanded(Gtk.Box):
         self.time_total.set_label(_fmt_us(total))
         self._sync_pos_timer()
         self._poll_position()
+
+    def _app_logo(self, app: str, size: int) -> Gtk.Widget | None:
+        if app in APP_LOGOS:
+            return logo(APP_LOGOS[app], size)
+        theme = Gtk.IconTheme.get_for_display(
+            self.get_display() or Gdk.Display.get_default())
+        for name in (app, f"{app}-browser", f"org.mozilla.{app}",
+                     f"com.{app}.Client", f"org.chromium.{app}"):
+            if name and theme.has_icon(name):
+                image = Gtk.Image.new_from_icon_name(name)
+                image.set_pixel_size(size)
+                return image
+        return None
+
+    def _set_app_badge(self, app: str):
+        if app == self._badge_app:
+            return
+        self._badge_app = app
+        for box in (self.app_badge, self.art_empty_logo):
+            while (child := box.get_first_child()) is not None:
+                box.remove(child)
+        badge = self._app_logo(app, 18)
+        self.app_badge.set_visible(badge is not None)
+        if badge is not None:
+            self.app_badge.append(badge)
+        big = self._app_logo(app, 30)
+        if big is None:
+            big = _symbol("music_note")
+            big.add_css_class("art-empty-symbol")
+        for setter in (big.set_hexpand, big.set_vexpand):
+            setter(True)
+        big.set_halign(Gtk.Align.CENTER)
+        big.set_valign(Gtk.Align.CENTER)
+        self.art_empty_logo.append(big)
 
     def _set_art_tint(self, rgb: tuple[int, int, int] | None):
         display = self.get_display() or Gdk.Display.get_default()
@@ -742,15 +1055,21 @@ class Expanded(Gtk.Box):
 
     def _on_weather(self, _svc, temp, desc, icon):
         self.weather_temp.set_label(temp)
-        self.weather_desc.set_label(desc)
+        # the short word ("Storm") fits; the full text goes in the tooltip
+        self.weather_desc.set_label(getattr(self.weather, "short", "") or desc)
+        self.weather_tile.set_tooltip_text(desc)
         # prefer the full-color weather set; symbolic suns get too abstract
         self.weather_icon.set_from_icon_name(pick_icon(
             self, icon.replace("-symbolic", ""), icon,
             "weather-few-clouds"))
 
     def _on_system(self, _svc, cpu, ram, ram_gib):
-        self.sys_label.set_label(
-            f"CPU {cpu}%     RAM {ram_gib:.1f} GiB ({ram}%)")
+        busy = cpu >= HIGH_CPU or ram >= HIGH_RAM
+        self.sys_label.set_visible(busy)
+        if busy:
+            self.sys_label.set_label(
+                f"CPU busy: {cpu}%" if cpu >= HIGH_CPU
+                else f"Memory almost full: {ram_gib:.1f} GiB ({ram}%)")
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -769,6 +1088,7 @@ class Expanded(Gtk.Box):
             self.system.start()
 
     def _on_unmap(self):
+        self.set_editing(False)
         self.clip_button.set_active(False)
         if self._controls_timer:
             GLib.source_remove(self._controls_timer)
@@ -811,92 +1131,46 @@ class Expanded(Gtk.Box):
             Gio.SubprocessFlags.NONE)
         return False
 
-    # -- pomodoro ----------------------------------------------------------
-
-    def _on_timer_toggle(self, *_):
-        self.timer_running = not self.timer_running
-        if self.timer_running and not self._timer_src:
-            self._timer_src = GLib.timeout_add_seconds(1, self._timer_tick)
-        self._sync_timer_ui()
-
-    def _on_timer_reset(self, *_):
-        self.timer_running = False
-        self.timer_left = self.timer_minutes * 60
-        if self._timer_src:
-            GLib.source_remove(self._timer_src)
-            self._timer_src = 0
-        self._sync_timer_ui()
+    # -- focus timer (shared service) ---------------------------------------
 
     def _on_timer_scroll(self, _ctrl, _dx, dy):
-        # only a stopped, untouched timer changes length
-        if self.timer_running or self.timer_left != self.timer_minutes * 60:
+        if self.timer is None:
             return False
         step = -TIMER_STEP if dy > 0 else TIMER_STEP
-        minutes = _clamp_minutes(self.timer_minutes + step)
-        if minutes == self.timer_minutes:
-            return True
-        self.timer_minutes = minutes
-        self.timer_left = minutes * 60
-        self.cfg["timer_minutes"] = minutes
-        config.save(self.cfg)
-        self._sync_timer_ui()
-        return True
-
-    def _timer_tick(self):
-        if not self.timer_running:
-            self._timer_src = 0
-            return False
-        self.timer_left -= 1
-        if self.timer_left <= 0:
-            self.timer_left = 0
-            self.timer_running = False
-            self._timer_src = 0
-            self._notify_done()
-            self._sync_timer_ui()
-            return False
-        self._sync_timer_ui()
+        if self.timer.set_minutes(self.timer.minutes + step):
+            self.cfg["timer_minutes"] = self.timer.minutes
+            config.save(self.cfg)
         return True
 
     def _sync_timer_ui(self):
-        m, s = divmod(self.timer_left, 60)
-        text = f"{m:02d}:{s:02d}"
-        self.timer_label.set_label(text)
+        t = self.timer
+        if t is None:
+            return
+        self.timer_label.set_label(t.text)
         self.timer_toggle.set_icon_name(
-            "media-playback-pause-symbolic" if self.timer_running
+            "media-playback-pause-symbolic" if t.running
             else "media-playback-start-symbolic")
-        if self.timer_running:
+        if t.running:
             self.timer_tile.add_css_class("info-item--running")
         else:
             self.timer_tile.remove_css_class("info-item--running")
-        if self.on_timer_change:
-            self.on_timer_change(text if self.timer_running else None)
-
-    def _notify_done(self):
-        app = Gio.Application.get_default()
-        if app:
-            note = Gio.Notification.new("Focus round complete")
-            note.set_body(f"{self.timer_minutes} minutes are up — take a break.")
-            app.send_notification("pomodoro", note)
+        if hasattr(self, "timer_button"):
+            self.timer_button.handler_block(self._timer_btn_handler)
+            self.timer_button.set_active(t.running)
+            self.timer_button.handler_unblock(self._timer_btn_handler)
+            self.timer_caption.set_label(t.text if t.touched else "Timer")
 
     def _refresh_big_clock(self):
         now = time.localtime()
         if self.cfg.get("clock_24h", True):
             clock = f"{now.tm_hour:02d}:{now.tm_min:02d}"
         else:
-            clock = (f"{now.tm_hour % 12 or 12:02d}:{now.tm_min:02d} "
+            clock = (f"{now.tm_hour % 12 or 12}:{now.tm_min:02d} "
                      f"{'AM' if now.tm_hour < 12 else 'PM'}")
         self.big_clock.set_label(clock)
         # spelled out here so the system locale cannot change the script
         self.big_date.set_label(
             f"{_DAYS[now.tm_wday]}, {now.tm_mday} {_MONTHS[now.tm_mon - 1]}")
-
-
-def _clamp_minutes(value) -> int:
-    try:
-        minutes = int(value)
-    except (TypeError, ValueError):
-        minutes = 25
-    return max(TIMER_MIN_MINUTES, min(TIMER_MAX_MINUTES, minutes))
 
 
 def _label(css: str, width: int) -> Gtk.Label:
@@ -964,4 +1238,7 @@ def art_tint(pixbuf: GdkPixbuf.Pixbuf) -> tuple[int, int, int]:
 
 def _fmt_us(us: int) -> str:
     s = max(0, us // 1_000_000)
+    h, rest = divmod(s, 3600)
+    if h:
+        return f"{h}:{rest // 60:02d}:{rest % 60:02d}"
     return f"{s // 60}:{s % 60:02d}"

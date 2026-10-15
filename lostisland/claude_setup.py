@@ -93,3 +93,92 @@ def uninstall() -> str:
             json.dump(settings, f, indent=2)
         return "Claude usage hook removed from settings.json."
     return "The statusLine isn't ours — left it untouched."
+
+
+# -- live status hooks (the pill's Claude activity) --------------------------
+
+STATUS_HOOK_DEST = os.path.join(config.CONFIG_DIR, "claude-status-hook.py")
+STATUS_MARKER = "claude-status-hook.py"
+STATUS_EVENTS = ("SessionStart", "UserPromptSubmit", "PreToolUse",
+                 "PostToolUse", "PermissionRequest", "Notification", "Stop",
+                 "PreCompact", "SessionEnd")
+_TOOL_EVENTS = ("PreToolUse", "PostToolUse", "PermissionRequest")
+
+
+def merge_status_hooks(settings: dict, command: str) -> dict:
+    """Add our hook to every status event, keeping the user's own hooks and
+    never adding it twice."""
+    hooks = settings.setdefault("hooks", {})
+    for event in STATUS_EVENTS:
+        groups = hooks.setdefault(event, [])
+        if any(STATUS_MARKER in h.get("command", "")
+               for g in groups for h in g.get("hooks", [])):
+            continue
+        group = {"hooks": [{"type": "command", "command": command,
+                            "timeout": 5}]}
+        if event in _TOOL_EVENTS:
+            group = {"matcher": "*", **group}
+        groups.append(group)
+    return settings
+
+
+def strip_status_hooks(settings: dict) -> dict:
+    hooks = settings.get("hooks", {})
+    for event in list(hooks):
+        kept = []
+        for group in hooks[event]:
+            inner = [h for h in group.get("hooks", [])
+                     if STATUS_MARKER not in h.get("command", "")]
+            if inner:
+                kept.append({**group, "hooks": inner})
+        if kept:
+            hooks[event] = kept
+        else:
+            hooks.pop(event)
+    if not hooks:
+        settings.pop("hooks", None)
+    return settings
+
+
+def _read_settings() -> dict:
+    try:
+        with open(SETTINGS) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_settings(settings: dict):
+    if os.path.exists(SETTINGS):
+        shutil.copy2(SETTINGS, SETTINGS + f".bak-lostisland-{int(time.time())}")
+    tmp = SETTINGS + ".tmp-lostisland"
+    with open(tmp, "w") as f:
+        json.dump(settings, f, indent=2)
+    os.replace(tmp, SETTINGS)
+
+
+def install_status() -> str:
+    if not os.path.isdir(CLAUDE_DIR):
+        return (f"Claude Code config not found at {CLAUDE_DIR}. "
+                "Run Claude Code once, then run this again.")
+    os.makedirs(config.CONFIG_DIR, exist_ok=True)
+    with open(os.path.join(os.path.dirname(__file__),
+                           "claude_status_hook.py")) as f:
+        source = f.read()
+    with open(STATUS_HOOK_DEST, "w") as f:
+        f.write(source)
+    os.chmod(STATUS_HOOK_DEST, 0o755)
+    _write_settings(merge_status_hooks(_read_settings(),
+                                       f"python3 {STATUS_HOOK_DEST}"))
+    return ("Claude status hooks installed.\n"
+            f"  hook: {STATUS_HOOK_DEST}\n"
+            f"  events registered in {SETTINGS}\n"
+            "New Claude Code sessions now show their status on the island.")
+
+
+def uninstall_status() -> str:
+    settings = _read_settings()
+    if not settings.get("hooks"):
+        return "Nothing to remove."
+    _write_settings(strip_status_hooks(settings))
+    return "Claude status hooks removed from settings.json."

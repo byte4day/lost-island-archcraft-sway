@@ -17,16 +17,32 @@ from gi.repository import GLib, GObject
 
 TTL = 30 * 60
 
-# wttr.in weather codes → (emoji-free label, symbolic icon)
-_ICONS = {
-    "113": "weather-clear-symbolic",
-    "116": "weather-few-clouds-symbolic",
-    "119": "weather-overcast-symbolic",
-    "122": "weather-overcast-symbolic",
-    "143": "weather-fog-symbolic",
-    "248": "weather-fog-symbolic",
-    "260": "weather-fog-symbolic",
-}
+# wttr.in weather codes -> (short label, symbolic icon). The short label
+# fits the pill and the card's info line without being cut off.
+_STORM = {200, 386, 389, 392, 395}
+_SNOW = {179, 182, 185, 227, 230, 281, 284, 311, 314, 317, 320, 323, 326,
+         329, 332, 335, 338, 350, 362, 365, 368, 371, 374, 377}
+_FOG = {143, 248, 260}
+
+
+def classify(code) -> tuple[str, str]:
+    try:
+        n = int(code)
+    except (TypeError, ValueError):
+        return "Cloudy", "weather-few-clouds-symbolic"
+    if n == 113:
+        return "Clear", "weather-clear-symbolic"
+    if n == 116:
+        return "Cloudy", "weather-few-clouds-symbolic"
+    if n in (119, 122):
+        return "Overcast", "weather-overcast-symbolic"
+    if n in _FOG:
+        return "Fog", "weather-fog-symbolic"
+    if n in _STORM:
+        return "Storm", "weather-storm-symbolic"
+    if n in _SNOW:
+        return "Snow", "weather-snow-symbolic"
+    return "Rain", "weather-showers-symbolic"
 
 
 class WeatherService(GObject.Object):
@@ -40,6 +56,7 @@ class WeatherService(GObject.Object):
         self.city = city
         self.temp = ""
         self.desc = ""
+        self.short = ""
         self.icon = "weather-clear-symbolic"
         self._stamp = 0.0
         self._busy = False
@@ -65,17 +82,11 @@ class WeatherService(GObject.Object):
         except Exception:
             self._busy = False
             return
-        icon = _ICONS.get(code)
-        if icon is None:
-            # coarse buckets: thunder, snow, rain, default clouds
-            n = int(code)
-            icon = ("weather-storm-symbolic" if n in (200, 386, 389, 392, 395)
-                    else "weather-snow-symbolic" if n >= 320
-                    else "weather-showers-symbolic" if n >= 263
-                    else "weather-few-clouds-symbolic")
+        short, icon = classify(code)
 
         def done():
             self.temp, self.desc, self.icon = temp, desc, icon
+            self.short = short
             self._stamp = time.time()
             self._busy = False
             self.emit("changed", temp, desc, icon)

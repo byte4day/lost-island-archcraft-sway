@@ -1,38 +1,62 @@
-/* Lost Island — visual identity.
-   The island is hardware-black, like the real thing. Controls are quiet
-   graphite circles; "on" is one blue. The only color that moves is the
-   player, which takes its tint from the current album art (expanded.py). */
+/* Lost Island: visual identity.
+   The island is hardware black, like the real thing. Inside the card,
+   controls sit on soft glass platters in the style of macOS Control Center;
+   "on" is one blue. The only color that moves is the player, which takes its
+   tint from the album art (expanded.py). Motion answers the hand: buttons
+   press in, the island springs (morph.py), edit mode jiggles. */
 
 @define-color ink #f5f5f7;
 @define-color ink_2 rgba(235, 235, 245, 0.62);
 @define-color ink_3 rgba(235, 235, 245, 0.36);
 @define-color raised #1c1c1e;
 @define-color raised_hover #2c2c2e;
+@define-color glass rgba(255, 255, 255, 0.075);
+@define-color glass_hi rgba(255, 255, 255, 0.11);
 @define-color hairline rgba(255, 255, 255, 0.07);
-@define-color danger #ff6961;
+@define-color danger #ff453a;
+@define-color warn #ff9f0a;
+@define-color ok #30d158;
 
 window.island-window {
   background: transparent;
 }
 
-.island {
+.island,
+.satellite {
   background: @island_bg;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 24px;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
-  transition: border-radius 260ms cubic-bezier(0.34, 1.3, 0.64, 1);
   color: @ink;
   font-family: "Noto Sans", sans-serif;
+  letter-spacing: -0.1px;
+}
+
+/* the key line Apple draws around the island on dark backgrounds */
+.island {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 19px;
+  transition: border-radius 380ms cubic-bezier(0.32, 1.25, 0.5, 1);
 }
 
 .island--expanded {
-  border-radius: 34px;
+  border-radius: 36px;
+}
+
+.island--banner {
+  border-radius: 32px;
+}
+
+/* notch shape: hangs from the top edge, square top corners */
+.island--notch {
+  border-top-width: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
 /* ---- collapsed pill ---- */
 
+/* 37 px tall like Apple's island (36.67 pt): 6 + 23 + 6 + key line */
 .pill {
-  padding: 6px 14px;
+  padding: 6px 12px 6px 10px;
+  min-height: 23px;
 }
 
 .pill-clock,
@@ -57,18 +81,10 @@ window.island-window {
   min-height: 16px;
 }
 
-.timer-chip,
 .pill-batt {
   font-weight: 700;
   font-size: 12px;
   color: @accent;
-  font-feature-settings: "tnum";
-}
-
-.record-chip {
-  color: @danger;
-  font-size: 12px;
-  font-weight: 700;
   font-feature-settings: "tnum";
 }
 
@@ -79,10 +95,72 @@ window.island-window {
   font-feature-settings: "tnum";
 }
 
+/* ---- live activities (pill and bubble) ---- */
+
+.activity-label {
+  font-weight: 650;
+  font-size: 13px;
+  font-feature-settings: "tnum";
+}
+
+.activity--compact .activity-label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.activity-sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: @ink_3;
+}
+
+.activity-art,
+.activity-art picture {
+  border-radius: 99px;
+}
+
+.tone-orange { color: @warn; }
+.tone-green { color: @ok; }
+.tone-red { color: @danger; }
+.tone-accent { color: @accent; }
+
+@keyframes rec-pulse {
+  from { opacity: 1; }
+  to { opacity: 0.35; }
+}
+
+.rec-dot {
+  background: @danger;
+  border-radius: 99px;
+  min-width: 9px;
+  min-height: 9px;
+  animation: rec-pulse 900ms ease-in-out infinite alternate;
+}
+
+/* the detached bubble for a second activity */
+/* Apple's minimal presentation: a 37 px circle, an oval up to 45 px */
+.satellite {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 99px;
+  min-width: 35px;
+  min-height: 35px;
+  padding: 0 5px;
+}
+
+@keyframes satellite-pop {
+  0% { transform: scale(0.35); opacity: 0; }
+  60% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.satellite--pop {
+  animation: satellite-pop 460ms cubic-bezier(0.3, 1.2, 0.5, 1) 1;
+}
+
 /* ---- peek capsule ---- */
 
 .peek {
-  padding: 10px 20px;
+  padding: 9px 20px;
 }
 
 .peek-title {
@@ -99,19 +177,106 @@ window.island-window {
   color: @ink;
 }
 
+.peek .symbol-icon.peek-symbol {
+  font-size: 20px;
+  color: @ink;
+}
+
+.peek-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: @ink_2;
+  font-feature-settings: "tnum";
+}
+
+.peek--green .peek-title,
+.peek--green .peek-value,
+.peek--green .peek-symbol {
+  color: @ok;
+}
+
+.peek--accent .peek-symbol,
+.peek--accent .peek-title {
+  color: @accent;
+}
+
+.peek--orange .peek-symbol {
+  color: @warn;
+}
+
 .peek levelbar trough {
   background: rgba(255, 255, 255, 0.14);
   border: none;
   border-radius: 99px;
-  min-height: 5px;
-  min-width: 140px;
+  min-height: 6px;
+  min-width: 150px;
 }
 
 .peek levelbar block.filled {
   background: @ink;
   border: none;
   border-radius: 99px;
-  min-height: 5px;
+  min-height: 6px;
+}
+
+/* ---- notification banner ---- */
+
+.banner {
+  padding: 14px 14px 14px 16px;
+}
+
+.banner-image,
+.banner-image picture {
+  border-radius: 10px;
+}
+
+.banner-app {
+  font-size: 11px;
+  font-weight: 600;
+  color: @ink_3;
+}
+
+.banner-summary {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.banner-body {
+  font-size: 13px;
+  color: @ink_2;
+}
+
+.banner-close {
+  background: @glass;
+  border: none;
+  border-radius: 99px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  color: @ink_2;
+}
+
+.banner-close .symbol-icon {
+  font-size: 14px;
+}
+
+.banner-close:hover {
+  background: @glass_hi;
+  color: @ink;
+}
+
+.banner-action {
+  background: @glass;
+  border: none;
+  border-radius: 99px;
+  min-height: 30px;
+  color: @ink;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.banner-action:hover {
+  background: @glass_hi;
 }
 
 /* ---- expanded card ---- */
@@ -120,21 +285,57 @@ window.island-window {
   padding: 14px 14px 12px;
 }
 
+/* glass platters, Control Center style */
+.platter,
+.player,
+.volume-row {
+  background-color: @glass;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.05),
+      rgba(255, 255, 255, 0));
+  border: 1px solid @hairline;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.07);
+}
+
+/* concentric with the card: 36 px outer radius - 14 px padding */
+.platter {
+  border-radius: 22px;
+}
+
+.controls-platter {
+  padding: 14px 6px 10px;
+}
+
 /* the player: tinted from album art at runtime */
 .player {
-  background-color: @raised;
-  border: 1px solid @hairline;
   border-radius: 22px;
-  padding: 12px 14px 8px;
+  padding: 12px 14px 6px;
 }
 
 .art-frame,
-.art-frame picture {
-  border-radius: 12px;
+.art-frame picture,
+.art-empty {
+  border-radius: 13px;
 }
 
 .art-frame {
   background: rgba(255, 255, 255, 0.06);
+}
+
+.art-empty {
+  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.16),
+      rgba(255, 255, 255, 0.04));
+}
+
+.art-empty-symbol {
+  font-size: 28px;
+  color: @ink_2;
+}
+
+.app-badge {
+  margin: 0 -5px -5px 0;
+  padding: 2px;
+  background: #000000;
+  border-radius: 99px;
 }
 
 .track-title {
@@ -169,7 +370,13 @@ scale.vol trough {
   background: rgba(255, 255, 255, 0.16);
   border: none;
   border-radius: 99px;
-  min-height: 4px;
+  min-height: 5px;
+  transition: min-height 160ms ease;
+}
+
+scale.seek:hover trough,
+scale.vol:hover trough {
+  min-height: 8px;
 }
 
 scale.seek highlight,
@@ -195,8 +402,8 @@ scale.vol slider {
 scale.seek:hover slider,
 scale.vol:hover slider {
   opacity: 1;
-  min-width: 12px;
-  min-height: 12px;
+  min-width: 14px;
+  min-height: 14px;
   margin: -4px;
 }
 
@@ -204,10 +411,12 @@ scale.vol:hover slider {
   background: transparent;
   border: none;
   border-radius: 99px;
-  min-width: 36px;
-  min-height: 36px;
+  min-width: 42px;
+  min-height: 42px;
   color: @ink;
-  -gtk-icon-size: 18px;
+  -gtk-icon-size: 22px;
+  transition: background 120ms ease,
+    transform 220ms cubic-bezier(0.3, 1.5, 0.6, 1);
 }
 
 .media-btn:hover {
@@ -215,7 +424,8 @@ scale.vol:hover slider {
 }
 
 .media-btn:active {
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(0.88);
 }
 
 .media-btn:disabled {
@@ -223,12 +433,12 @@ scale.vol:hover slider {
 }
 
 .media-btn--main {
-  min-width: 42px;
-  min-height: 42px;
-  -gtk-icon-size: 24px;
+  min-width: 54px;
+  min-height: 54px;
+  -gtk-icon-size: 32px;
 }
 
-/* idle: no music — big quiet clock */
+/* idle: no music, a big quiet clock */
 .idle {
   padding: 4px 6px 2px;
 }
@@ -247,32 +457,35 @@ scale.vol:hover slider {
 
 /* ---- control grid: one shape for every switch and tool ---- */
 
-.controls {
-  margin: 4px 0 0;
-}
-
 .circle {
-  background: @raised;
+  background: rgba(255, 255, 255, 0.1);
   border: none;
   border-radius: 99px;
   min-width: 44px;
   min-height: 44px;
   padding: 0;
   color: @ink;
-  transition: background 120ms ease;
+  transition: background 160ms ease, box-shadow 220ms ease,
+    transform 240ms cubic-bezier(0.3, 1.5, 0.6, 1);
 }
 
 .circle:hover {
-  background: @raised_hover;
+  background: rgba(255, 255, 255, 0.16);
 }
 
 .circle:active {
-  background: #3a3a3c;
+  background: rgba(255, 255, 255, 0.24);
+  transform: scale(0.9);
 }
 
 .circle:checked {
   background: @accent;
   color: #ffffff;
+  box-shadow: 0 0 14px alpha(@accent, 0.38);
+}
+
+.circle:checked:active {
+  transform: scale(0.9);
 }
 
 .circle:disabled {
@@ -292,6 +505,7 @@ scale.vol:hover slider {
 .record-button--active {
   background: @danger;
   color: #ffffff;
+  box-shadow: 0 0 14px alpha(@danger, 0.4);
 }
 
 .airplay-button--active {
@@ -306,13 +520,86 @@ scale.vol:hover slider {
   font-feature-settings: "liga";
 }
 
-/* power choices slide out under the grid */
-.power-row {
-  margin-top: 2px;
+/* ---- edit mode ---- */
+
+@keyframes jiggle-a {
+  0% { transform: rotate(-1.6deg); }
+  50% { transform: rotate(1.6deg); }
+  100% { transform: rotate(-1.6deg); }
 }
 
+@keyframes jiggle-b {
+  0% { transform: rotate(1.4deg); }
+  50% { transform: rotate(-1.4deg); }
+  100% { transform: rotate(1.4deg); }
+}
+
+.jiggle-a {
+  animation: jiggle-a 300ms ease-in-out infinite;
+}
+
+.jiggle-b {
+  animation: jiggle-b 340ms ease-in-out infinite;
+}
+
+.dragging {
+  opacity: 0.3;
+}
+
+.drop-hover .circle {
+  box-shadow: 0 0 0 2px @accent;
+}
+
+.edit-shield {
+  background: transparent;
+}
+
+.edit-badge,
+.add-badge {
+  border: none;
+  border-radius: 99px;
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+  margin: -4px 0 0 -4px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.edit-badge {
+  background: #636366;
+}
+
+.edit-badge:hover {
+  background: @danger;
+}
+
+.add-badge {
+  background: @ok;
+  margin: -2px 0 0 4px;
+}
+
+.tray {
+  margin-top: 0;
+  padding: 12px 10px 10px;
+}
+
+.tray-hint {
+  font-size: 11px;
+  font-weight: 600;
+  color: @ink_3;
+  padding-left: 4px;
+}
+
+.circle--ghost {
+  background: rgba(255, 255, 255, 0.05);
+  color: @ink_2;
+}
+
+/* power choices slide out under the grid */
 .power-btn {
-  background: @raised;
+  background: @glass;
   border: none;
   border-radius: 12px;
   min-height: 32px;
@@ -323,7 +610,7 @@ scale.vol:hover slider {
 }
 
 .power-btn:hover {
-  background: @raised_hover;
+  background: @glass_hi;
 }
 
 .power-btn--confirm,
@@ -335,9 +622,8 @@ scale.vol:hover slider {
 /* ---- volume ---- */
 
 .volume-row {
-  background: @raised;
   border-radius: 99px;
-  padding: 8px 14px;
+  padding: 9px 16px;
 }
 
 .volume-row .symbol-icon {
@@ -355,33 +641,35 @@ scale.vol:hover slider {
 /* ---- launchers ---- */
 
 .launcher-btn {
-  background: @raised;
-  border: none;
+  background: @glass;
+  border: 1px solid @hairline;
   border-radius: 99px;
-  min-height: 34px;
+  min-height: 36px;
   padding: 0 8px;
   color: @ink;
   font-size: 12px;
   font-weight: 600;
+  transition: background 120ms ease,
+    transform 220ms cubic-bezier(0.3, 1.5, 0.6, 1);
 }
 
 .launcher-btn:hover {
-  background: @raised_hover;
+  background: @glass_hi;
 }
 
 .launcher-btn:active {
-  background: #3a3a3c;
+  transform: scale(0.95);
 }
 
-.launcher-logo {
-  min-width: 18px;
-  min-height: 18px;
+.launcher-btn--ghost {
+  color: @ink_2;
+  padding: 0 12px;
 }
 
 /* ---- info line: timer, weather, battery ---- */
 
 .info-line {
-  padding: 2px 6px 0;
+  padding: 2px 4px 0 6px;
 }
 
 .info-item .symbol-icon {
@@ -396,7 +684,7 @@ scale.vol:hover slider {
 }
 
 .info-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: @ink_2;
 }
 
@@ -409,22 +697,27 @@ scale.vol:hover slider {
   background: transparent;
   border: none;
   border-radius: 99px;
-  min-width: 24px;
-  min-height: 24px;
+  min-width: 28px;
+  min-height: 28px;
   padding: 0;
   color: @ink_2;
   -gtk-icon-size: 12px;
+  transition: background 120ms ease;
+}
+
+.mini-btn .symbol-icon {
+  font-size: 17px;
 }
 
 .mini-btn:hover {
-  background: @raised_hover;
+  background: @glass_hi;
   color: @ink;
 }
 
 .sys-stats {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  color: @ink_3;
+  color: @warn;
   font-feature-settings: "tnum";
 }
 
@@ -436,7 +729,7 @@ scale.vol:hover slider {
 }
 
 .record-setup {
-  background: @raised;
+  background: @glass;
   border-radius: 18px;
   padding: 12px;
   color: @ink;
@@ -486,7 +779,9 @@ scale.vol:hover slider {
 .power-btn:focus-visible,
 .record-action:focus-visible,
 .media-btn:focus-visible,
-.mini-btn:focus-visible {
+.mini-btn:focus-visible,
+.banner-action:focus-visible,
+.banner-close:focus-visible {
   outline: 2px solid @accent;
   outline-offset: 2px;
 }
@@ -494,8 +789,8 @@ scale.vol:hover slider {
 /* ---- clipboard history ---- */
 
 .clip-panel {
-  background: @raised;
-  border-radius: 18px;
+  background: @glass;
+  border-radius: 20px;
   padding: 10px 8px 8px;
 }
 
@@ -518,7 +813,7 @@ scale.vol:hover slider {
 }
 
 .clip-clear:hover {
-  background: @raised_hover;
+  background: @glass_hi;
 }
 
 .clip-item {
@@ -532,7 +827,7 @@ scale.vol:hover slider {
 }
 
 .clip-item:hover {
-  background: @raised_hover;
+  background: @glass_hi;
 }
 
 .clip-empty {

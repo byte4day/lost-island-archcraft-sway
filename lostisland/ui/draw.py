@@ -138,3 +138,221 @@ def _rounded_rect(cr, x, y, w, h, r):
     cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
     cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
     cr.close_path()
+
+
+# -- live activity glyphs --------------------------------------------------------
+
+def hex_rgb(value: str, fallback=(0.04, 0.52, 1.0)) -> tuple[float, float, float]:
+    value = (value or "").lstrip("#")
+    if len(value) != 6:
+        return fallback
+    try:
+        return tuple(int(value[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    except ValueError:
+        return fallback
+
+
+class _Ticking(Gtk.DrawingArea):
+    """A drawing area that redraws every frame only while `animated` is
+    true and the widget is on screen."""
+
+    def __init__(self, size: int):
+        super().__init__()
+        self.set_content_width(size)
+        self.set_content_height(size)
+        self.set_valign(Gtk.Align.CENTER)
+        self._tick_id = 0
+        self._t0 = 0
+        self.animated = False
+        self.set_draw_func(self._draw)
+        self.connect("map", lambda *_: self._sync())
+        self.connect("unmap", lambda *_: self._sync())
+
+    def _sync(self):
+        want = self.animated and self.get_mapped()
+        if want and not self._tick_id:
+            self._tick_id = self.add_tick_callback(self._on_tick)
+        elif not want and self._tick_id:
+            self.remove_tick_callback(self._tick_id)
+            self._tick_id = 0
+
+    def _on_tick(self, _widget, clock) -> bool:
+        now = clock.get_frame_time()
+        if not self._t0:
+            self._t0 = now
+        self.elapsed = (now - self._t0) / 1_000_000
+        self.queue_draw()
+        return True
+
+    elapsed = 0.0
+
+    def _draw(self, area, cr, w, h):
+        raise NotImplementedError
+
+
+class ProgressRing(_Ticking):
+    """A thin ring. `progress` 0..1 fills it; None spins an open arc."""
+
+    def __init__(self, size: int = 18, width: float = 2.6,
+                 color=(1.0, 1.0, 1.0)):
+        super().__init__(size)
+        self.line = width
+        self.color = color
+        self.progress: float | None = 0.0
+
+    def set_progress(self, progress: float | None, color=None):
+        self.progress = progress
+        if color is not None:
+            self.color = color
+        self.animated = progress is None
+        self._sync()
+        self.queue_draw()
+
+    def _draw(self, area, cr, w, h):
+        cx, cy = w / 2, h / 2
+        r = min(w, h) / 2 - self.line / 2 - 0.5
+        cr.set_line_width(self.line)
+        cr.set_line_cap(1)
+        cr.set_source_rgba(*self.color, 0.25)
+        cr.arc(cx, cy, r, 0, 2 * math.pi)
+        cr.stroke()
+        cr.set_source_rgb(*self.color)
+        if self.progress is None:
+            start = self.elapsed * 2 * math.pi * 0.9
+            cr.arc(cx, cy, r, start, start + math.pi * 0.6)
+        else:
+            p = max(0.0, min(1.0, self.progress))
+            if p <= 0:
+                return
+            start = -math.pi / 2
+            cr.arc(cx, cy, r, start, start + 2 * math.pi * p)
+        cr.stroke()
+
+
+class SparkIcon(Gtk.Widget):
+    """An SVG logo that can spin (working), breathe (needs you) or rest."""
+
+    __gtype_name__ = "LostIslandSparkIcon"
+
+    def __init__(self, path: str, size: int = 16):
+        super().__init__()
+        from gi.repository import Gdk, GdkPixbuf
+        scale = 3
+        pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+            path, size * scale, size * scale, True)
+        self.texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+        self.size = size
+        self.mode = "still"
+        self._tick_id = 0
+        self._t0 = 0
+        self._elapsed = 0.0
+        self.set_valign(Gtk.Align.CENTER)
+        self.connect("map", lambda *_: self._sync())
+        self.connect("unmap", lambda *_: self._sync())
+
+    def set_mode(self, mode: str):
+        if mode != self.mode:
+            self.mode = mode
+            self._sync()
+            self.queue_draw()
+
+    def _sync(self):
+        want = self.mode != "still" and self.get_mapped()
+        if want and not self._tick_id:
+            self._t0 = 0
+            self._tick_id = self.add_tick_callback(self._on_tick)
+        elif not want and self._tick_id:
+            self.remove_tick_callback(self._tick_id)
+            self._tick_id = 0
+
+    def _on_tick(self, _widget, clock) -> bool:
+        now = clock.get_frame_time()
+        self._t0 = self._t0 or now
+        self._elapsed = (now - self._t0) / 1_000_000
+        self.queue_draw()
+        return True
+
+    def do_measure(self, orientation, for_size):
+        return self.size, self.size, -1, -1
+
+    def do_snapshot(self, snapshot):
+        from gi.repository import Graphene
+        s = self.size
+        angle, scale = 0.0, 1.0
+        if self.mode == "spin":
+            angle = (self._elapsed * 140.0) % 360.0
+        elif self.mode == "breathe":
+            scale = 0.86 + 0.14 * (0.5 + 0.5 * math.sin(self._elapsed * 5.0))
+        centre = Graphene.Point()
+        centre.init(s / 2, s / 2)
+        back = Graphene.Point()
+        back.init(-s / 2, -s / 2)
+        snapshot.save()
+        snapshot.translate(centre)
+        snapshot.rotate(angle)
+        snapshot.scale(scale, scale)
+        snapshot.translate(back)
+        rect = Graphene.Rect()
+        rect.init(0, 0, s, s)
+        snapshot.append_scaled_texture(self.texture,
+                                       _filter_trilinear(), rect)
+        snapshot.restore()
+
+
+def _filter_trilinear():
+    from gi.repository import Gsk
+    return Gsk.ScalingFilter.TRILINEAR
+
+
+class ChargeGlyph(_Ticking):
+    """A battery that fills up to the charge level, then the bolt pulses."""
+
+    FILL_SECONDS = 0.9
+
+    def __init__(self):
+        super().__init__(30)
+        self.set_content_width(40)
+        self.set_content_height(22)
+        self.percent = 0.0
+
+    def play(self, percent: float):
+        self.percent = max(0.0, min(100.0, percent))
+        self._t0 = 0
+        self.elapsed = 0.0
+        self.animated = True
+        self._sync()
+
+    def _draw(self, area, cr, w, h):
+        t = min(1.0, self.elapsed / self.FILL_SECONDS)
+        ease = 1 - (1 - t) ** 3
+        body_w, body_h = w - 5, h - 2
+        x, y = 1, 1
+        cr.set_line_width(1.6)
+        cr.set_source_rgba(1, 1, 1, 0.45)
+        _rounded_rect(cr, x, y, body_w, body_h, 5)
+        cr.stroke()
+        cr.set_source_rgba(1, 1, 1, 0.45)
+        _rounded_rect(cr, x + body_w + 1, y + body_h * 0.32, 2.5,
+                      body_h * 0.36, 1.2)
+        cr.fill()
+        fill = (body_w - 4) * (self.percent / 100) * ease
+        if fill > 0.5:
+            cr.set_source_rgb(0.20, 0.84, 0.29)
+            _rounded_rect(cr, x + 2, y + 2, fill, body_h - 4, 3)
+            cr.fill()
+        # bolt, pulsing once the fill settles
+        pulse = 1.0 if t < 1 else 0.75 + 0.25 * math.cos(
+            (self.elapsed - self.FILL_SECONDS) * 4)
+        cr.set_source_rgba(1, 1, 1, pulse)
+        cx, cy = x + body_w / 2, y + body_h / 2
+        cr.move_to(cx + 1.5, cy - 6.5)
+        cr.line_to(cx - 3.5, cy + 1)
+        cr.line_to(cx - 0.2, cy + 1)
+        cr.line_to(cx - 1.5, cy + 6.5)
+        cr.line_to(cx + 3.5, cy - 1)
+        cr.line_to(cx + 0.2, cy - 1)
+        cr.close_path()
+        cr.fill()
+        if self.elapsed > 4:
+            self.animated = False
+            self._sync()

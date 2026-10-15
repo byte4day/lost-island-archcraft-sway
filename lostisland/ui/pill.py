@@ -11,7 +11,8 @@ Faces, cycled with a click or a horizontal swipe (config `pill_faces`):
   weather    temperature + condition icon
   bluetooth  connected device + its battery
 
-A running timer earns a small accent chip on every face. With cava
+Live activities (Claude Code, the focus timer, a recording, a download)
+take over the pill through `show_activity()`; see ui/activity.py. With cava
 installed the EQ bars follow the actual audio; cava only runs while music
 plays and the bars are on screen, and the bars fall back to their own
 animation until real data flows.
@@ -21,11 +22,11 @@ from __future__ import annotations
 
 import os
 import time
-import weakref
 
 from gi.repository import GLib, Gtk, Pango
 
 from lostisland import config
+from lostisland.ui.activity import ActivityView
 from lostisland.ui.draw import EqBars, pick_icon
 
 FACES = ["auto", "status", "lyrics", "title", "compact", "clock",
@@ -35,9 +36,19 @@ CLAUDE_LOGO = os.path.join(os.path.dirname(__file__), "claude-spark.svg")
 ARCH_LOGO = os.path.join(os.path.dirname(__file__), "assets", "arch.svg")
 
 
+def clock_markup(tm: time.struct_time, h24: bool) -> str:
+    """'20:56', or '8:56' with a small dimmed 'PM' for the 12-hour clock."""
+    if h24:
+        return f"{tm.tm_hour:02d}:{tm.tm_min:02d}"
+    hour = tm.tm_hour % 12 or 12
+    suffix = "AM" if tm.tm_hour < 12 else "PM"
+    return (f"{hour}:{tm.tm_min:02d}"
+            f"<span size='78%' alpha='60%'> {suffix}</span>")
+
+
 class Pill(Gtk.Box):
     def __init__(self, cfg: dict, media=None, cava=None, weather=None,
-                 lyrics=None, claude=None, recorder=None):
+                 lyrics=None, claude=None):
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.add_css_class("pill")
         self.cfg = cfg
@@ -46,7 +57,7 @@ class Pill(Gtk.Box):
         self.weather = weather
         self.lyrics = lyrics
         self.claude = claude
-        self.recorder = recorder
+        self._activity: dict | None = None
         self._minute_timer = 0
         self._lyric_timer = 0
         self._music = None  # (title, art_path, playing) while music is active
@@ -62,6 +73,10 @@ class Pill(Gtk.Box):
         self.title.set_ellipsize(Pango.EllipsizeMode.END)
         self.title.set_max_width_chars(22)
         self.eq = EqBars()
+        # trailing edge, like the waveform on the right of the iPhone island
+        self.eq.set_hexpand(True)
+        self.eq.set_halign(Gtk.Align.END)
+        self.eq.set_margin_start(18)
         self.eq.connect("map", lambda *_: self._sync_cava())
         self.eq.connect("unmap", lambda *_: self._sync_cava())
         if self.cava is not None:
@@ -93,25 +108,10 @@ class Pill(Gtk.Box):
         self.face_label.set_ellipsize(Pango.EllipsizeMode.END)
         self.face_label.set_max_width_chars(24)
 
-        # timer chip (shared)
-        self.timer_chip = Gtk.Label()
-        self.timer_chip.add_css_class("timer-chip")
-        self.timer_chip.set_visible(False)
-
-        self.record_chip = Gtk.Label()
-        self.record_chip.add_css_class("record-chip")
-        self.record_chip.set_visible(False)
-        self._record_timer = 0
-        if self.recorder is not None:
-            self_ref = weakref.ref(self)
-
-            def on_recorder_changed(*_):
-                widget = self_ref()
-                if widget is not None:
-                    widget._sync_recording()
-
-            handler = self.recorder.connect("changed", on_recorder_changed)
-            weakref.finalize(self, self.recorder.disconnect, handler)
+        # a live activity (Claude, timer, recording, download)
+        self.activity_view = ActivityView(compact=False,
+                                          accent=cfg.get("accent", "#0A84FF"))
+        self.activity_view.set_visible(False)
 
         # small battery readout
         self.batt_icon = Gtk.Image()
@@ -132,17 +132,14 @@ class Pill(Gtk.Box):
         for widget in (self.art, self.title, self.eq, self.lyric,
                        self.face_icon, self.face_label, self.arch_icon, self.clock,
                        self.claude_icon, self.claude_label,
-                       self.timer_chip, self.record_chip,
-                       self.batt_icon, self.batt_label):
+                       self.activity_view, self.batt_icon, self.batt_label):
             self.append(widget)
 
-        self.connect("map", lambda *_: (self._start_clock(), self.render(),
-                                        self._sync_recording()))
+        self.connect("map", lambda *_: (self._start_clock(), self.render()))
         self.connect("unmap", lambda *_: (self._stop_clock(),
                                           self._sync_cava(),
                                           self._sync_lyric_timer(),
-                                          self._sync_claude_timer(),
-                                          self._stop_record_timer()))
+                                          self._sync_claude_timer()))
         self.render()
 
     # -- face state ---------------------------------------------------------
@@ -170,7 +167,8 @@ class Pill(Gtk.Box):
     def _hide_all(self):
         for w in (self.art, self.title, self.eq, self.lyric, self.face_icon,
                   self.face_label, self.arch_icon, self.clock, self.batt_icon,
-                  self.batt_label, self.claude_icon, self.claude_label):
+                  self.batt_label, self.claude_icon, self.claude_label,
+                  self.activity_view):
             w.set_visible(False)
 
     def render(self):
@@ -181,6 +179,14 @@ class Pill(Gtk.Box):
         music = self._music
         playing = bool(music and music[2])
 
+        if self._activity is not None:
+            self.activity_view.show(self._activity)
+            self.activity_view.set_visible(True)
+            self.eq.set_playing(False)
+            self._sync_cava()
+            self._sync_lyric_timer()
+            self._sync_claude_timer()
+            return
         if face == "auto" and playing:
             self._show_music_row(title=True)
         elif face == "auto":
@@ -253,45 +259,21 @@ class Pill(Gtk.Box):
 
     # -- music --------------------------------------------------------------
 
-    def show_music(self, title: str, art_path: str, playing: bool):
+    def show_music(self, title: str, art_path: str, playing: bool,
+                   tint=None):
         self._music = (title, art_path, playing)
+        # the EQ takes the album's color, like the bars on an iPhone
+        self.eq.color = tint or (1.0, 1.0, 1.0)
+        self.render()
+
+    def show_activity(self, activity: dict | None):
+        """A live activity replaces the face; None returns to the face."""
+        self._activity = activity
         self.render()
 
     def show_idle(self):
         self._music = None
         self.render()
-
-    def show_timer_chip(self, text: str | None):
-        self.timer_chip.set_visible(text is not None)
-        if text is not None:
-            self.timer_chip.set_label(text)
-
-    def _sync_recording(self):
-        running = self.recorder is not None and self.recorder.running
-        self.record_chip.set_visible(running)
-        if running:
-            self._record_tick()
-            if self.get_mapped() and not self._record_timer:
-                self._record_timer = GLib.timeout_add_seconds(
-                    1, self._record_tick)
-        else:
-            self._stop_record_timer()
-
-    def _record_tick(self):
-        if self.recorder is None or not self.recorder.running:
-            self._record_timer = 0
-            return False
-        elapsed = self.recorder.elapsed()
-        minutes, seconds = divmod(elapsed, 60)
-        self.record_chip.set_label(
-            "Saving" if self.recorder.stopping else
-            f"REC {minutes:02d}:{seconds:02d}")
-        return True
-
-    def _stop_record_timer(self):
-        if self._record_timer:
-            GLib.source_remove(self._record_timer)
-            self._record_timer = 0
 
     # -- battery / bluetooth ------------------------------------------------
 
@@ -423,5 +405,5 @@ class Pill(Gtk.Box):
         return False
 
     def _refresh_clock(self):
-        fmt = "%H:%M" if self.cfg.get("clock_24h", True) else "%I:%M"
-        self.clock.set_label(time.strftime(fmt))
+        self.clock.set_markup(clock_markup(
+            time.localtime(), self.cfg.get("clock_24h", True)))

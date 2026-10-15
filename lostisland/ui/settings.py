@@ -33,6 +33,10 @@ MODULES = [
     ("toggles", "Quick toggles", "Wi-Fi, Bluetooth, sound and mic"),
     ("tools", "Tools", "Screenshot, color picker, Do Not Disturb, power"),
     ("clipboard", "Clipboard", "Recent copied text, kept in memory only"),
+    ("claude_status", "Claude Code status",
+     "Thinking, tool use and approval requests on the pill"),
+    ("transfers", "Downloads", "Browser downloads and script progress"),
+    ("indicators", "Caps Lock and brightness", "Peeks when they change"),
 ]
 
 
@@ -76,6 +80,10 @@ class SettingsWindow(Adw.PreferencesWindow):
             "Sit on top of panels",
             "Overlap the bar at the screen edge instead of sitting below it",
             "overlap_panel"))
+        pos.add(self._switch(
+            "Keep windows below the island",
+            "Reserve a strip at the top so the pill never covers title bars",
+            "reserve_space"))
 
         margin = Adw.SpinRow.new_with_range(0, 80, 1)
         margin.set_title("Top margin")
@@ -117,6 +125,16 @@ class SettingsWindow(Adw.PreferencesWindow):
         page.add(pos)
 
         look = Adw.PreferencesGroup(title="Look")
+        shape = Adw.ComboRow(
+            title="Shape",
+            subtitle="Floating island, or a notch hanging from the top edge")
+        shapes = [("island", "Island"), ("notch", "Notch")]
+        shape.set_model(Gtk.StringList.new([s[1] for s in shapes]))
+        shape.set_selected(1 if self.cfg.get("shape") == "notch" else 0)
+        shape.connect("notify::selected", lambda r, _p: (
+            self.cfg.__setitem__("shape", shapes[r.get_selected()][0]),
+            self._apply()))
+        look.add(shape)
         opacity = Adw.SpinRow.new_with_range(30, 100, 5)
         opacity.set_title("Opacity")
         opacity.set_subtitle("Island background transparency, %")

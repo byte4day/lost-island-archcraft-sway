@@ -214,6 +214,12 @@ class ToolActions:
             self._confirm = None
         return False
 
+    def lock(self):
+        """Lock the screen now (the Lock control in the grid)."""
+        self.on_collapse()
+        if not tools.spawn_detached(tools.lock_command()):
+            self._fail("No screen locker found")
+
     # -- helpers -----------------------------------------------------------
 
     def _begin(self) -> bool:

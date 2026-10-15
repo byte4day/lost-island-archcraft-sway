@@ -5,8 +5,11 @@ Missing keys fall back to defaults, so upgrades never break an old config.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
+
+from lostisland.ui.layout import DEFAULT_CONTROLS, DEFAULT_LAUNCHERS
 
 CONFIG_DIR = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "lost-island"
@@ -21,6 +24,10 @@ DEFAULTS = {
     "margin_top": 6,
     # sit on top of panels/bars instead of being pushed below them
     "overlap_panel": False,
+    # keep a strip at the top free so windows start below the pill
+    "reserve_space": True,
+    # "island" floats below the edge; "notch" hangs from it, MacBook style
+    "shape": "island",
     # monitor connector name ("" = primary / compositor default)
     "monitor": "",
     # "top" stays below fullscreen apps, "overlay" is always on top
@@ -60,7 +67,14 @@ DEFAULTS = {
         "tools": True,
         "clipboard": True,
         "lyrics": False,
+        "claude_status": True,
+        "transfers": True,
+        "indicators": True,
     },
+    # round buttons in the card, in order (edit them in the card)
+    "controls": list(DEFAULT_CONTROLS),
+    # app launchers under the volume bar
+    "launchers": list(DEFAULT_LAUNCHERS),
     # weather location ("" = auto by IP); any wttr.in place name works
     "weather_city": "",
     # accent color used for progress bars and highlights
@@ -71,7 +85,7 @@ DEFAULTS = {
 
 
 def _merge(base: dict, override: dict) -> dict:
-    out = dict(base)
+    out = copy.deepcopy(base)
     for k, v in override.items():
         if isinstance(v, dict) and isinstance(base.get(k), dict):
             out[k] = _merge(base[k], v)
@@ -85,7 +99,7 @@ def load() -> dict:
         with open(CONFIG_PATH) as f:
             return _merge(DEFAULTS, json.load(f))
     except (OSError, ValueError):
-        return dict(DEFAULTS)
+        return copy.deepcopy(DEFAULTS)
 
 
 def write_default() -> str:

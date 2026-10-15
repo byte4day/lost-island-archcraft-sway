@@ -2,27 +2,67 @@
 
 A compact, black dynamic island for Sway, maintained by [byte4day](https://github.com/byte4day). This is a customized Linux build of [Marco Zorn's Lost Island v1.7.2](https://github.com/MarcoZorn/lost-island/tree/v1.7.2), with its MIT license and original attribution preserved. It is designed for Archcraft, and should also work on Arch Linux with Sway and GTK4 layer shell.
 
-<img src="media/card.png" alt="The expanded island: the player with track, artist and seek bar, two rows of round controls with Sound and Mic on in blue, a volume bar, Claude, Codex and Cursor launchers, and a line with the focus timer, weather and battery" width="400">
+<img src="media/card.png" alt="The expanded island with no music playing: a large clock and date, two rows of round controls on a dark platter with Bluetooth, Sound and Mic on in blue, a volume bar, Claude, Codex and Cursor launchers, and a line with a running focus timer, weather, battery, and the edit, power and settings buttons" width="400">
 
-<img src="media/pill.png" alt="The idle pill: the Arch mark and the clock" height="30">
+<img src="media/pill.png" alt="Two live activities: the pill shows the Claude spark and an orange 'Allow Bash?' request, and a separate round bubble beside it shows the focus timer at 24:59" height="37">
 
-[Watch the 11-second demo](media/demo.mp4): the pill opens into the card, playback pauses and resumes, and the card closes.
+The design follows Apple's Live Activity guidelines for the Dynamic Island: a 37 px black capsule with a thin outline, a leading graphic and a trailing status on either side of an empty middle, a separate circle for a second activity, and inner corners that follow the outer curve. Every change of shape is a spring animation. Set **Shape** to **Notch** in settings for a MacBook-style notch that hangs from the top edge.
 
-The idle pill shows the Arch mark and clock. When an MPRIS player is playing, it shows the album art and track title. Click the pill to open the card.
+The idle pill shows the Arch mark and the clock. While music plays it shows the album art, the title, and EQ bars in the album's color. Click the pill to open the card, or press <kbd>Super</kbd>+<kbd>I</kbd> with the binding below.
+
+[Watch the 11-second demo](media/demo.mp4) (recorded before this redesign): the pill opens into the card, playback pauses and resumes, and the card closes.
+
+## Live activities
+
+Several things can be live at once. The most important one fills the pill and the next one gets the round bubble beside it:
+
+1. **Screen recording**: a pulsing red dot and the elapsed time.
+2. **Claude Code needs you**: the Claude spark and, in orange, what it is asking (for example "Allow Bash?").
+3. **Music**: album art, title and EQ bars.
+4. **Claude Code working**: the spinning spark and what it is doing ("Run tests", "Edit app.py"); **Done** shows for 8 seconds when it finishes.
+5. **Downloads and copies**: a ring and the percentage or size received.
+6. **Focus timer**: a progress ring and the time left. A round ends with a chime and a peek.
+
+Click the Claude activity to bring its terminal to the front. Click the bubble for music to switch to the player, or for the timer to pause it.
+
+**Claude Code status** needs its hooks once: `PYTHONPATH="$HOME/.local/share/lost-island" python3 -m lostisland --setup-claude-status`. It copies a small hook to `~/.config/lost-island/`, backs up `~/.claude/settings.json`, and adds the hook to the session events without touching your other hooks. New Claude Code sessions then report their status. `--remove-claude-status` takes the hooks out again.
+
+**Downloads** from Firefox and Chromium in `~/Downloads` show up by themselves. For scripts, pipe their output through `bin/island-progress`:
+
+```sh
+rsync -a --info=progress2 src/ dst/ | ~/.local/share/lost-island/bin/island-progress "Backing up"
+pv -n big.iso 2>&1 >/mnt/usb/big.iso | ~/.local/share/lost-island/bin/island-progress "Copying ISO"
+```
+
+## Notifications
+
+A notification opens the island into a banner with the app's icon, the title, two lines of text and the notification's own buttons (for example **Reply** or **Mark as read**). Click the banner to open the app, a button to run that action, or × to dismiss it. The banner stays while the pointer is over it. Buttons act on mako's copy of the notification, so they work exactly like clicking it in mako. Focus (Do Not Disturb) hides banners. The volume and brightness popups from Archcraft's scripts are skipped, because the island draws its own.
+
+Volume, brightness and Caps Lock changes, and plugging in the charger, show as short peeks.
 
 ## What the card does
 
-- **Music.** Cover, title, artist, seek bar and play, previous and next. The player card takes its color from the album art. When a player publishes no track length (common for browser players such as Apple Music in Firefox), the seek bar is hidden instead of showing `0:00`.
-- **Controls.** One grid of round buttons: Wi-Fi, Bluetooth, sound and mic switches; Focus (Do Not Disturb); Power; Screen and Area screenshots; Color picker; Record; AirPlay; Clipboard. Blue means on. Right-click a switch to open its settings app. Wi-Fi and Bluetooth show the connected network or device name under the button.
+- **Music.** Cover, title, artist, seek bar and large play, previous and next buttons. The player takes its color from the album art, and a small badge shows the playing app (Spotify, Firefox and so on). Without a cover, the tile shows the app's logo. When a player publishes no track length (common for browser players), the seek bar is hidden instead of showing `0:00`.
+- **Controls.** A grid of round buttons: Wi-Fi, Bluetooth, sound and mic switches; Focus (Do Not Disturb); AirPlay; Screen and Area screenshots; Color picker; Record; Clipboard; Lock. Blue means on. Right-click a switch to open its settings app. Wi-Fi and Bluetooth show the connected network or device name under the button.
+- **Edit the controls.** Click the pencil in the info line, or press and hold any control. The controls jiggle: drag one onto another to move it, click − to remove it, and click + on a control in the tray below to add it back (Power, Timer and Settings start in the tray). Launchers can be removed and added the same way. Click ✓ when done. The layout is saved in `config.json` as `controls` and `launchers`.
 - **Volume.** A full-width slider that shows the current level as soon as the card opens.
 - **Launchers.** Claude Code, Codex and Cursor Agent CLIs open in Alacritty.
-- **Info line.** Focus timer (scroll over it to set 5 to 90 minutes), weather, battery and the settings gear.
+- **Info line.** Focus timer (scroll over it to set 5 to 90 minutes), weather, battery, then Edit, Power and Settings. A CPU or memory warning appears under it only when usage is high.
 
 ### Shortcuts on the pill
 
 - Scroll over the pill to change volume by 5%.
 - Middle-click the pill to play or pause.
 - Right-click opens or closes the card. A horizontal swipe changes the pill face.
+- With a Claude activity in the pill, a click brings that terminal to the front.
+
+To open the card from the keyboard, add this to your Sway config:
+
+```sh
+bindsym $mod+i exec env PYTHONPATH=$HOME/.local/share/lost-island python3 -m lostisland --toggle
+```
+
+`python3 -m lostisland --timer` starts or pauses the focus timer, if you want a key for that too.
 
 ### Tools
 
@@ -94,7 +134,7 @@ systemctl --user start lost-island.service
 
 In a Sway config, use `exec sh -c 'systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP; systemctl --user start lost-island.service'`. In Archcraft's executable startup script, add the two commands after its other session setup. Do not add both methods. To replace an existing bar, back up its Sway config and remove or comment only that bar's startup command; do not stop network, tray, notification, or policy services just because they appeared beside the bar.
 
-Open the card by clicking the pill. The gear at the end of the info line opens settings. Settings are saved at `~/.config/lost-island/config.json`, which is created on first run; this file is intentionally absent from the repository. Change the island monitor, clock, modules, faces, and accent there or through the settings window. Each card feature (tools, clipboard, quick toggles, weather and so on) can be turned off under Modules. The default theme is pure black with a blue (`#0A84FF`) accent for switches that are on. The automatic pill face returns to the clock when playback pauses.
+Open the card by clicking the pill. The gear at the end of the info line opens settings. By default the island keeps a 47 px strip at the top of its monitor free, so windows start below it and their title bars are never covered; turn off **Keep windows below the island** to let windows reach the top edge. Settings are saved at `~/.config/lost-island/config.json`, which is created on first run; this file is intentionally absent from the repository. Change the island monitor, clock, modules, faces, and accent there or through the settings window. Each card feature (tools, clipboard, quick toggles, weather and so on) can be turned off under Modules. The default theme is pure black with a blue (`#0A84FF`) accent for switches that are on. The automatic pill face returns to the clock when playback pauses.
 
 ## Use and checks
 
