@@ -61,10 +61,12 @@ class WeatherService(GObject.Object):
         self._stamp = 0.0
         self._busy = False
 
-    def request(self):
-        """Refresh if stale; emits `changed` when data lands."""
+    def request(self, emit_cached: bool = True):
+        """Refresh if stale; emits `changed` when data lands. With
+        `emit_cached`, fresh data is re-emitted at once (for a tile that just
+        appeared). A `changed` handler must pass False, or it re-enters."""
         if self._busy or time.time() - self._stamp < TTL:
-            if self.temp:
+            if self.temp and emit_cached:
                 self.emit("changed", self.temp, self.desc, self.icon)
             return
         self._busy = True

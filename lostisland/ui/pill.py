@@ -216,7 +216,8 @@ class Pill(Gtk.Box):
             self._render_battery(force=True)
         elif face == "weather" and self.weather is not None:
             # clock leading, weather trailing, like the iPhone status bar
-            self.weather.request()
+            # never re-emit cached data here: `changed` calls render()
+            self.weather.request(emit_cached=False)
             self._show_clock(dot=False)
             if self.weather.temp:
                 self.face_icon.set_from_icon_name(self.weather.icon)
