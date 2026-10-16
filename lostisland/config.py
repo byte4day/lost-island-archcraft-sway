@@ -71,6 +71,7 @@ DEFAULTS = {
         "claude_status": True,
         "transfers": True,
         "indicators": True,
+        "wallpaper": True,
     },
     # round buttons in the card, in order (edit them in the card)
     "controls": list(DEFAULT_CONTROLS),
@@ -82,6 +83,22 @@ DEFAULTS = {
     "accent": "#0A84FF",
     # focus timer length in minutes (scroll the timer tile to change)
     "timer_minutes": 25,
+    # wallpaper picker (control "wallpaper", or `--wallpapers`)
+    "wallpaper": {
+        "folder": "~/Pictures/Wallpapers",
+        # auto | sway | awww | swww | command
+        "backend": "auto",
+        # shell command for backend "command"; the image path is $1
+        "command": "",
+        # fill | fit | stretch | center | tile
+        "fill": "fill",
+        # awww/swww transition: grow, wipe, wave, fade, center, outer, ...
+        "transition": "grow",
+        # Sway file whose `output * bg` line follows the pick ("" = none)
+        "persist": "~/.config/sway/wallpaper.conf",
+        # recolor the terminal theme with pywal after setting it
+        "pywal": False,
+    },
 }
 
 

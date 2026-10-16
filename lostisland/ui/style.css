@@ -889,3 +889,34 @@ scale.vol:hover slider {
 
 .claude-status.tone-orange { color: @warn; }
 .claude-status.tone-green { color: @ok; }
+
+/* ---- wallpaper picker ---- */
+
+.wall-panel {
+  background: @glass;
+  border-radius: 20px;
+  padding: 8px 8px 10px;
+  margin-top: 12px;
+}
+
+.wall-name {
+  font-size: 11px;
+  color: @ink_2;
+  font-feature-settings: "tnum";
+}
+
+.wall-search {
+  min-height: 28px;
+  border-radius: 99px;
+  font-size: 12px;
+}
+
+.circle.wall-mini {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+}
+
+.circle.wall-mini .symbol-icon {
+  font-size: 16px;
+}

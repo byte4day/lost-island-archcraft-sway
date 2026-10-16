@@ -31,7 +31,7 @@ class Island(Gtk.Box):
     def __init__(self, cfg: dict, media, power, weather=None, system=None,
                  on_settings=None, cava=None, lyrics=None, claude=None,
                  recorder=None, airplay=None, clipboard=None, timer=None,
-                 claude_status=None, transfers=None):
+                 claude_status=None, transfers=None, wallpaper=None):
         super().__init__()
         self.add_css_class("island")
         self.set_halign(Gtk.Align.CENTER)
@@ -70,12 +70,19 @@ class Island(Gtk.Box):
                                  on_settings=on_settings, recorder=recorder,
                                  airplay=airplay, tools_row=tools_row,
                                  clipboard=clipboard,
-                                 claude_status=claude_status)
+                                 claude_status=claude_status,
+                                 wallpaper=wallpaper)
         self.expanded.on_clip_copied = self._clip_copied
+        # the shell gives the island the keyboard while the picker is open
+        self.on_keyboard = None   # (mode: "none" | "on_demand" | "exclusive")
+        self._wall_exclusive = False
+        self.expanded.on_wallpaper_open = self._wallpaper_open
+        self.expanded.on_wallpaper_applied = self._wallpaper_applied
         self.expanded.on_edit_changed = lambda _editing: self._cancel_collapse()
         if tools_row is not None:
             tools_row.on_power_open = (
-                lambda: self.expanded.clip_button.set_active(False))
+                lambda: (self.expanded.clip_button.set_active(False),
+                         self.expanded.wall_button.set_active(False)))
         self.expanded.set_size_request(400, -1)
 
         self.pill.on_face_changed = self.refresh_activities
@@ -315,6 +322,12 @@ class Island(Gtk.Box):
             else:
                 self.expand()
         elif not self.expanded.editing:
+            # the wallpaper carousel's gaps are part of the picker
+            picked = self.pick(x, y, Gtk.PickFlags.DEFAULT)
+            if picked is not None and (
+                    picked == self.expanded.wall_revealer
+                    or picked.is_ancestor(self.expanded.wall_revealer)):
+                return
             # a click on empty card space closes it again
             self.collapse()
 
@@ -352,6 +365,47 @@ class Island(Gtk.Box):
         # let the morph settle before the peek widens the pill
         GLib.timeout_add(320, lambda: self.show_peek(
             self.peek.show_clipboard, text) and False)
+
+    def open_wallpapers(self, exclusive: bool = False):
+        """Open the card on the wallpaper picker. `exclusive` takes the
+        keyboard straight away (for a key binding, where no click gives the
+        island focus); Esc or closing the card hands it back."""
+        self._wall_exclusive = exclusive
+        if self.state != "expanded":
+            self.expand()
+        self.expanded.open_wallpapers()
+        if exclusive and self.on_keyboard:
+            self.on_keyboard("exclusive")
+
+    def toggle_wallpapers(self, exclusive: bool = False):
+        if self.state == "expanded" and self.expanded.wall_button.get_active():
+            self.collapse()
+        else:
+            self.open_wallpapers(exclusive)
+
+    def _wallpaper_open(self, open_: bool):
+        if self.on_keyboard:
+            if not open_:
+                self.on_keyboard("none")
+                if self._wall_exclusive and self.state == "expanded":
+                    # opened from the keyboard: Esc closes the whole card
+                    GLib.idle_add(lambda: self.collapse() and False)
+                self._wall_exclusive = False
+            else:
+                self.on_keyboard("exclusive" if self._wall_exclusive
+                                 else "on_demand")
+
+    def _wallpaper_applied(self, path: str, ok: bool, message: str):
+        import os
+        if not ok:
+            self.expanded.wall_picker and self.expanded.wall_picker.name \
+                .set_label(f"Couldn't set it: {message}")
+            return
+        if message:   # set, with a warning (e.g. config not saved)
+            self.expanded.wall_picker and self.expanded.wall_picker.name \
+                .set_label(message)
+        if self.state != "expanded":
+            self.show_peek(self.peek.show_wallpaper, os.path.basename(path))
 
     def _set_dnd(self, active: bool):
         self.dnd_active = active

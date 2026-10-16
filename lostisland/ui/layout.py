@@ -20,6 +20,7 @@ CONTROLS = {
     "color": ("colorize", "Color"),
     "record": ("videocam", "Record"),
     "clipboard": ("content_paste", "Clipboard"),
+    "wallpaper": ("wallpaper", "Wallpaper"),
     "lock": ("lock", "Lock"),
     "power": ("power_settings_new", "Power"),
     "timer": ("timer", "Timer"),

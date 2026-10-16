@@ -123,6 +123,9 @@ class Peek(Gtk.Box):
         else:
             self._set(symbol="lan", title=name, body="Ethernet")
 
+    def show_wallpaper(self, filename: str):
+        self._set(symbol="wallpaper", title="Wallpaper set", body=filename)
+
     def show_screenshot(self, filename: str):
         self._set(symbol="screenshot_monitor", title="Screenshot copied",
                   body=filename)

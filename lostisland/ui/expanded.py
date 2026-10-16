@@ -38,7 +38,7 @@ class Expanded(Gtk.Box):
     def __init__(self, cfg: dict, media, power, timer=None,
                  weather=None, system=None, on_settings=None, recorder=None,
                  airplay=None, tools_row=None, clipboard=None,
-                 claude_status=None):
+                 claude_status=None, wallpaper=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=11)
         self.add_css_class("expanded")
         self.cfg = cfg
@@ -62,6 +62,11 @@ class Expanded(Gtk.Box):
         self.control_handlers: dict[str, int] = {}
         self.control_labels: dict[str, Gtk.Label] = {}
         self.on_clip_copied = None
+        # wallpaper picker: service, the lazily built panel, and callbacks
+        self.wallpaper = wallpaper
+        self.wall_picker = None
+        self.on_wallpaper_open = None     # (open: bool)
+        self.on_wallpaper_applied = None  # (path, ok, message)
         self.on_edit_changed = None
         self.editing = False
 
@@ -129,6 +134,10 @@ class Expanded(Gtk.Box):
         self.clip_button = circle_button(
             "content_paste", "Clipboard history", toggle=True)
         self.clip_button.connect("toggled", self._on_clip_toggled)
+
+        self.wall_button = circle_button(
+            "wallpaper", "Pick a wallpaper", toggle=True)
+        self.wall_button.connect("toggled", self._on_wall_toggled)
 
         self._status_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                                    spacing=6)
@@ -486,6 +495,8 @@ class Expanded(Gtk.Box):
             widgets["airplay"] = (self.airplay_button, self.airplay_text)
         if self.clipboard is not None and self.clipboard.available:
             widgets["clipboard"] = (self.clip_button, "Clipboard")
+        if self.wallpaper is not None:
+            widgets["wallpaper"] = (self.wall_button, "Wallpaper")
         if self.timer is not None:
             timer_btn = circle_button("timer", "Start or pause the focus timer",
                                       toggle=True)
@@ -523,6 +534,7 @@ class Expanded(Gtk.Box):
         section.append(platter)
         self._section = section
         self._build_clipboard()
+        self._build_wallpapers()
         if self.tools is not None:
             section.append(self.tools.power_revealer)
             section.append(self.tools.message)
@@ -646,6 +658,7 @@ class Expanded(Gtk.Box):
         self.editing = editing
         if editing:
             self.clip_button.set_active(False)
+            self.wall_button.set_active(False)
             if self.tools is not None:
                 self.tools.close_power()
         self._sync_edit_marks()
@@ -831,9 +844,60 @@ class Expanded(Gtk.Box):
 
     def _on_clip_toggled(self, button: Gtk.ToggleButton):
         open_ = button.get_active()
-        if open_ and self.tools is not None:
-            self.tools.close_power()
+        if open_:
+            self.wall_button.set_active(False)
+            if self.tools is not None:
+                self.tools.close_power()
         self.clip_revealer.set_reveal_child(open_)
+
+    # -- wallpapers ---------------------------------------------------------
+
+    def _build_wallpapers(self):
+        self.wall_revealer = Gtk.Revealer()
+        self.wall_revealer.set_transition_type(
+            Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.wall_revealer.set_transition_duration(200)
+        self.wall_revealer.connect("notify::child-revealed",
+                                   self._on_wall_revealed)
+        self._section.append(self.wall_revealer)
+
+    def open_wallpapers(self):
+        """Open the picker (the control may be hidden in the edit tray)."""
+        if self.wallpaper is None:
+            return
+        if self.wall_button.get_active() and self.wall_picker is not None:
+            self.wall_picker.carousel.grab_focus()
+        self.wall_button.set_active(True)
+
+    def close_wallpapers(self):
+        self.wall_button.set_active(False)
+
+    def _on_wall_toggled(self, button: Gtk.ToggleButton):
+        open_ = button.get_active() and self.wallpaper is not None
+        if open_:
+            from lostisland.ui.wallpapers import WallpaperPicker
+            self.clip_button.set_active(False)
+            if self.tools is not None:
+                self.tools.close_power()
+            if self.wall_picker is None:
+                self.wall_picker = WallpaperPicker(
+                    self.wallpaper, on_close=self.close_wallpapers,
+                    on_applied=self._on_wall_applied)
+                self.wall_revealer.set_child(self.wall_picker)
+            self.wall_picker.open()
+        self.wall_revealer.set_reveal_child(open_)
+        if self.on_wallpaper_open:
+            self.on_wallpaper_open(open_)
+
+    def _on_wall_revealed(self, revealer, _pspec):
+        # free the thumbnails once the panel has slid shut
+        if not revealer.get_child_revealed() and self.wall_picker is not None \
+                and not self.wall_button.get_active():
+            self.wall_picker.release()
+
+    def _on_wall_applied(self, path: str, ok: bool, message: str):
+        if self.on_wallpaper_applied:
+            self.on_wallpaper_applied(path, ok, message)
 
     def _on_clip_pick(self, _button: Gtk.Button, text: str):
         self.clipboard.copy(text)
@@ -1157,6 +1221,7 @@ class Expanded(Gtk.Box):
     def _on_unmap(self):
         self.set_editing(False)
         self.clip_button.set_active(False)
+        self.wall_button.set_active(False)
         if self._controls_timer:
             GLib.source_remove(self._controls_timer)
             self._controls_timer = 0

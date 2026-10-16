@@ -44,6 +44,7 @@ from lostisland.services.power import PowerService  # noqa: E402
 from lostisland.services.recorder import ScreenRecorder  # noqa: E402
 from lostisland.services.system import SystemService  # noqa: E402
 from lostisland.services.transfers import TransferService  # noqa: E402
+from lostisland.services.wallpaper import WallpaperService  # noqa: E402
 from lostisland.services.weather import WeatherService  # noqa: E402
 from lostisland.ui.island import Island, IslandShell  # noqa: E402
 
@@ -85,6 +86,7 @@ class LostIsland(Adw.Application):
             ("remove-claude-status", "\0",
              "Remove the Claude Code status hooks"),
             ("timer", "\0", "Start or pause the focus timer"),
+            ("wallpapers", "w", "Open or close the wallpaper picker"),
         ):
             self.add_main_option(opt, ord(short) if short != "\0" else 0,
                                  GLib.OptionFlags.NONE,
@@ -121,6 +123,8 @@ class LostIsland(Adw.Application):
             self.open_settings()
         if opts.contains("timer") and self.timer is not None:
             self.timer.toggle()
+        if opts.contains("wallpapers") and self.island:
+            self.island.toggle_wallpapers(exclusive=True)
         return 0
 
     def do_activate(self):
@@ -166,7 +170,9 @@ class LostIsland(Adw.Application):
                              recorder=self.recorder, airplay=self.airplay,
                              clipboard=self.clipboard, timer=self.timer,
                              claude_status=self.claude_status,
-                             transfers=self.transfers)
+                             transfers=self.transfers,
+                             wallpaper=self.wallpaper)
+        self.island.on_keyboard = self._set_keyboard
         self._wire_services()
         self.island.set_shape(self.cfg.get("shape", "island"))
         self.island.on_state = lambda state: self._set_raised(state != "pill")
@@ -211,6 +217,20 @@ class LostIsland(Adw.Application):
             return
         self._raised = raised
         ls.set_layer(self.win, ls.Layer.OVERLAY if raised else ls.Layer.TOP)
+
+    def _set_keyboard(self, mode: str):
+        """Keyboard for the wallpaper picker: "exclusive" when opened from a
+        key binding, "on_demand" when clicked open, "none" otherwise, so
+        the island never keeps keys from the windows below it."""
+        ls = self._layer_shell
+        if ls is None or self.win is None:
+            return
+        kinds = {"none": ls.KeyboardMode.NONE,
+                 "on_demand": ls.KeyboardMode.ON_DEMAND,
+                 "exclusive": ls.KeyboardMode.EXCLUSIVE}
+        ls.set_keyboard_mode(self.win, kinds.get(mode, ls.KeyboardMode.NONE))
+        if mode != "none":
+            self._set_raised(True)
 
     def _pick_monitor(self):
         want = self.cfg.get("monitor", "")
@@ -346,6 +366,8 @@ class LostIsland(Adw.Application):
                           if mods.get("transfers", True) else None)
         self.indicators = (IndicatorService()
                            if mods.get("indicators", True) else None)
+        self.wallpaper = (WallpaperService(self.cfg)
+                          if mods.get("wallpaper", True) else None)
 
     def _add_progress_action(self):
         """`progress` app action for scripts: ("label", percent); a negative
@@ -364,6 +386,11 @@ class LostIsland(Adw.Application):
         edit.connect("activate", lambda *_: self.island and (
             self.island.expand(), self.island.expanded.set_editing(True)))
         self.add_action(edit)
+
+        walls = Gio.SimpleAction.new("wallpapers", None)
+        walls.connect("activate", lambda *_: self.island and
+                      self.island.toggle_wallpapers(exclusive=True))
+        self.add_action(walls)
 
     def _wire_services(self):
         isl = self.island
